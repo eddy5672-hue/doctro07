@@ -1,0 +1,1626 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="QR로 설비를 찾고 스마트폰 녹음을 정상음과 비교해 고장 징후를 알려주는 설비 소리 점검 도구">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;-webkit-text-size-adjust:100%}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>설비 청진기</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+/* 레이아웃: QR로 연 설비 한 대를 위에서 아래로 점검하는 모바일 한 줄 흐름. 측정 그래프는 오실로스코프 패널 */
+:root {
+  --bg: #eef2f4; --surface: #ffffff; --sunken: #e4eaee; --fg: #13212b; --muted: #556773; --line: #d2dbe1;
+  --accent: #0b6a86; --accent-ink: #ffffff; --accent-soft: #dcecf1;
+  --scope: #0c171e; --scope-grid: #1f313c; --scope-text: #8fa7b5; --trace: #5fd0c3; --trace2: #f0c35a;
+  --ok: #1d7f47; --ok-soft: #dcf0e3; --caution: #9a6a0c; --caution-soft: #f7ecd2; --danger: #b52424; --danger-soft: #f8dcdc;
+  --font-body: "IBM Plex Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1418; --surface: #141e24; --sunken: #0f181d; --fg: #e3ebef; --muted: #93a6b2; --line: #26343d;
+    --accent: #4fb2cd; --accent-ink: #061318; --accent-soft: #15303a;
+    --scope: #071015; --scope-grid: #1a2b35; --scope-text: #7d97a6; --trace: #5fd0c3; --trace2: #f0c35a;
+    --ok: #4cc07c; --ok-soft: #12301f; --caution: #e0a83c; --caution-soft: #33280f; --danger: #ef5b5b; --danger-soft: #3b1616;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1418; --surface: #141e24; --sunken: #0f181d; --fg: #e3ebef; --muted: #93a6b2; --line: #26343d;
+  --accent: #4fb2cd; --accent-ink: #061318; --accent-soft: #15303a;
+  --scope: #071015; --scope-grid: #1a2b35; --scope-text: #7d97a6; --trace: #5fd0c3; --trace2: #f0c35a;
+  --ok: #4cc07c; --ok-soft: #12301f; --caution: #e0a83c; --caution-soft: #33280f; --danger: #ef5b5b; --danger-soft: #3b1616;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 56px;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.wrap { max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+h1, h2, h3, h4 { text-wrap: balance; margin: 0; line-height: 1.3; }
+p { margin: 0; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+
+header.top { padding-block: 24px 0; display: flex; flex-direction: column; gap: 6px; }
+.brand { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.brand h1 { font-size: 26px; font-weight: 700; }
+.tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 6px; }
+.lede { color: var(--muted); font-size: 14px; max-width: 64ch; }
+
+nav.tabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); display: flex; gap: 4px; padding-block: 8px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+nav.tabs button { background: transparent; color: var(--muted); border: 0; border-radius: 8px; padding: 8px 12px; font-weight: 500; }
+nav.tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.card-head h2 { font-size: 17px; }
+.card-head .aside { margin-left: auto; font-size: 13px; color: var(--muted); }
+.eyebrow { font-size: 12px; letter-spacing: 0.04em; color: var(--muted); }
+
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field label { font-size: 12px; color: var(--muted); }
+input[type="text"], input[type="number"], select { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; min-width: 0; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+button, .filebtn { font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; border-radius: 8px; padding: 8px 14px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; position: relative; }
+button.ghost, .filebtn.ghost { background: transparent; color: var(--accent); }
+button.quiet { background: transparent; color: var(--muted); border-color: var(--line); }
+button:disabled { opacity: 0.5; cursor: default; }
+.filebtn input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 7px 12px; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+
+/* 작업 전 안내 */
+.brief { border-left: 5px solid var(--g, var(--accent)); }
+.brief .title { display: flex; flex-direction: column; gap: 2px; }
+.brief h2 { font-size: 20px; }
+.qrflag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2px 10px; width: fit-content; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; background: var(--sunken); }
+.chip b { font-family: var(--font-mono); font-weight: 500; }
+.g-normal { --g: var(--ok); --gs: var(--ok-soft); }
+.g-caution { --g: var(--caution); --gs: var(--caution-soft); }
+.g-alert { --g: var(--danger); --gs: var(--danger-soft); }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13px; border-radius: 999px; padding: 2px 12px; width: fit-content; background: var(--gs); color: var(--g); white-space: nowrap; }
+.pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.cautions { margin: 0; padding: 12px 14px 12px 32px; background: var(--caution-soft); border-radius: 8px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+.cautions li::marker { color: var(--caution); }
+.guide { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.guide div { background: var(--surface); padding: 10px 12px; min-width: 0; }
+.guide span { display: block; font-size: 12px; color: var(--muted); }
+
+/* 측정 */
+.sources { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.src { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: var(--sunken); min-width: 0; }
+.src h3 { font-size: 14px; }
+.src p { font-size: 13px; color: var(--muted); }
+.src .row { margin-top: auto; flex-wrap: nowrap; }
+.src select { flex: 1; }
+.msg { font-size: 13px; color: var(--danger); }
+
+.scope { background: var(--scope); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.scope-bar { display: flex; align-items: center; gap: 10px; color: var(--scope-text); font-size: 12px; font-family: var(--font-mono); flex-wrap: wrap; }
+.scope-bar strong { color: var(--trace); font-weight: 500; font-family: var(--font-body); font-size: 13px; }
+.scope-bar .legend { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-body); }
+.scope-bar .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
+.scope button { padding: 4px 10px; font-size: 12px; background: transparent; color: var(--trace); border-color: var(--scope-grid); }
+.scope .push { margin-left: auto; }
+canvas { display: block; width: 100%; }
+.c-mini { height: 64px; } .c-wave { height: 60px; } .c-band { height: 220px; } .c-cycle { height: 150px; } .c-trend { height: 220px; } .c-spec { height: 180px; } .c-sg { height: 140px; border-radius: 4px; }
+
+/* 결과 */
+.banner { border-radius: 8px; padding: 12px 14px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+.banner.fail { background: var(--danger-soft); }
+.banner.fail b { color: var(--danger); }
+.banner.warn { background: var(--caution-soft); }
+.banner.warn b { color: var(--caution); }
+.score { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; }
+.sbox { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sbox.main { border-left: 5px solid var(--g); }
+.big { font-family: var(--font-mono); font-size: 44px; line-height: 1; font-variant-numeric: tabular-nums; }
+.big small { font-size: 16px; color: var(--muted); margin-left: 4px; }
+.provisional .big { color: var(--muted); }
+.bar { position: relative; height: 10px; border-radius: 5px; background: var(--sunken); }
+.bar .zone { position: absolute; top: 0; bottom: 0; }
+.bar .mark { position: absolute; top: -5px; width: 4px; height: 20px; border-radius: 2px; background: var(--fg); transform: translateX(-2px); transition: left .4s ease; }
+.bar-scale { position: relative; height: 16px; font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+.bar-scale span { position: absolute; transform: translateX(-50%); }
+.mgmt-val { font-family: var(--font-mono); font-size: 28px; line-height: 1; }
+.reasons { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.explain { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.explain li::marker { color: var(--accent); }
+.rec { background: var(--accent-soft); border-radius: 8px; padding: 10px 14px; font-size: 14px; }
+.ai { border: 1px dashed var(--accent); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.ai-out { font-size: 14px; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
+.ai-out h4 { margin-top: 6px; font-size: 14px; color: var(--accent); }
+.ai-out .li { padding-left: 14px; position: relative; }
+.ai-out .li::before { content: "–"; position: absolute; left: 0; color: var(--accent); }
+.playstat { font-size: 13px; color: var(--trace); font-family: var(--font-mono); min-height: 1.4em; }
+details.more { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+details.more summary { cursor: pointer; font-weight: 500; font-size: 14px; }
+details.more[open] summary { margin-bottom: 10px; }
+.kv { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; font-size: 13px; }
+.kv div span { display: block; color: var(--muted); font-size: 12px; }
+.note { font-size: 13px; color: var(--muted); }
+.ok-note { color: var(--ok); }
+
+/* 이력 */
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-weight: 500; color: var(--muted); font-size: 12px; }
+td.num { font-family: var(--font-mono); text-align: right; }
+td button { padding: 2px 8px; font-size: 12px; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--g); margin-right: 6px; }
+.report { display: flex; flex-direction: column; gap: 12px; }
+.ba { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: center; }
+.ba .sbox { align-items: flex-start; }
+.ba .arrow { font-size: 22px; color: var(--muted); }
+.verdict-line { font-weight: 700; font-size: 16px; }
+
+/* 설비·QR */
+.eqlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 12px; }
+.eq { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; background: var(--surface); }
+.qrbox { background: #ffffff; border-radius: 6px; padding: 6px; width: 112px; height: 112px; cursor: pointer; }
+.qrbox img, .qrbox canvas { width: 100px !important; height: 100px !important; display: block; }
+.eq h3 { font-size: 15px; }
+.eq .meta { font-size: 12px; color: var(--muted); }
+.eq .full { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; }
+.thr { display: grid; grid-template-columns: auto minmax(0, 1fr) 3ch; gap: 8px; align-items: center; font-size: 13px; }
+
+.how { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; font-size: 14px; }
+.how h3 { font-size: 14px; margin-bottom: 4px; }
+.how p { color: var(--muted); }
+.steps { margin: 0; padding-left: 20px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+
+@media (max-width: 680px) {
+  .grid2, .grid3, .sources, .score, .how, .guide { grid-template-columns: minmax(0, 1fr); }
+  .kv { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .brand h1 { font-size: 22px; }
+  .big { font-size: 38px; }
+  .ba { grid-template-columns: minmax(0, 1fr); }
+  .ba .arrow { transform: rotate(90deg); justify-self: center; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg width="30" height="30" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="16" fill="var(--accent)"/><path d="M5 17h5l3-7 4 14 3-9 2 4h7" fill="none" stroke="var(--accent-ink)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1>설비 청진기</h1>
+      <span class="tag">AI-THON 수요과제</span>
+    </div>
+    <p class="lede">설비에 붙인 QR을 찍고 스마트폰으로 소리를 녹음하면, 등록해 둔 정상음과 얼마나 닮았는지를 0~100점으로 계산해 고장 징후를 알려줍니다. 설비 종류에 관계없이 정상음만 등록하면 쓸 수 있습니다.</p>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="check" aria-selected="true">점검</button>
+    <button role="tab" data-tab="hist" aria-selected="false">이력 · 정비 리포트</button>
+    <button role="tab" data-tab="eqs" aria-selected="false">설비 · QR</button>
+    <button role="tab" data-tab="how" aria-selected="false">원리</button>
+  </nav>
+
+  <!-- ===== 점검 ===== -->
+  <div data-panel="check" class="wrap" style="max-width:none">
+    <section class="card brief" id="brief">
+      <div class="row">
+        <span class="qrflag" id="qrflag" hidden>QR로 열림</span>
+        <select id="eqSel" aria-label="설비 선택" style="width:auto;margin-left:auto"></select>
+      </div>
+      <div class="title">
+        <span class="eyebrow" id="bWhere"></span>
+        <h2 id="bName"></h2>
+      </div>
+      <div class="chips" id="bChips"></div>
+      <div>
+        <h3 style="font-size:14px;margin-bottom:6px">작업 전 확인</h3>
+        <ul class="cautions" id="bCautions"></ul>
+      </div>
+      <div>
+        <h3 style="font-size:14px;margin-bottom:6px">측정 표준 (매번 같게)</h3>
+        <div class="guide" id="bGuide"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>소리 측정</h2><span class="aside">5~10초 녹음</span></div>
+      <div class="grid2">
+        <div class="field"><label>점검 구분</label>
+          <div class="seg" id="kindSeg"><button type="button" data-v="정기" aria-pressed="true">정기 점검</button><button type="button" data-v="정비 전" aria-pressed="false">정비 전</button><button type="button" data-v="정비 후" aria-pressed="false">정비 후</button></div>
+        </div>
+        <div class="field"><label for="devSel">측정 기기</label><select id="devSel"></select></div>
+      </div>
+      <div class="sources">
+        <div class="src"><h3>바로 녹음</h3><p>이 화면에서 마이크로 바로 녹음합니다.</p><div class="row"><select id="recDur" aria-label="녹음 길이" style="flex:0 0 auto;width:auto"><option value="6">6초</option><option value="10">10초</option><option value="15">15초</option><option value="20">20초</option></select><button id="recBtn" type="button">녹음 시작</button></div><p class="msg" id="recMsg" hidden></p></div>
+        <div class="src"><h3>녹음 파일 올리기</h3><p>휴대폰 녹음 앱 · 동영상 파일 (30초까지)</p><div class="row"><label class="filebtn ghost">파일 선택<input id="file" type="file" accept="audio/*,video/*"></label></div><p class="msg" id="fileMsg" hidden></p></div>
+        <div class="src"><h3>시연 소리</h3><p>미리 만든 정상음 · 고장음 (결과 고정)</p><div class="row"><select id="demoSel" aria-label="시연 소리"></select><button id="demoBtn" type="button" class="ghost">불러오기</button></div></div>
+      </div>
+      <div class="scope">
+        <div class="scope-bar"><strong id="srcName">-</strong><span id="srcMeta"></span><button class="push" id="playCur" type="button">▶ 듣기</button></div>
+        <canvas class="c-wave" id="cvWave" aria-label="녹음 파형"></canvas>
+      </div>
+    </section>
+
+    <section class="card" id="result" hidden>
+      <div class="card-head"><h2>판정</h2><span class="aside" id="rWhen"></span></div>
+      <div id="qBanner"></div>
+      <div class="score">
+        <div class="sbox main" id="sMain">
+          <span class="eyebrow">정상음 유사도</span>
+          <div class="row" style="align-items:flex-end"><span class="big" id="sNum">-</span><span class="pill" id="sPill"></span></div>
+          <div class="bar" id="sBar"><span class="zone" id="zA"></span><span class="zone" id="zC"></span><span class="zone" id="zN"></span><span class="mark" id="sMark"></span></div>
+          <div class="bar-scale" id="sScale"></div>
+          <p class="small muted" id="sThr"></p>
+        </div>
+        <div class="sbox">
+          <span class="eyebrow">위험도 (점수 · 하락 추세 · 반복 종합)</span>
+          <div class="row" style="align-items:baseline"><span class="mgmt-val" id="mVal">-</span><span class="pill" id="mPill"></span></div>
+          <ul class="reasons" id="mWhy"></ul>
+          <span class="eyebrow">유사도 점수 추이 (최근 기록 → 지금)</span>
+          <canvas class="c-mini" id="cvMini" aria-label="최근 유사도 점수 추이"></canvas>
+        </div>
+      </div>
+
+      <div>
+        <h3 style="font-size:15px;margin-bottom:8px">무엇이 달라졌나</h3>
+        <ul class="explain" id="explain"></ul>
+      </div>
+      <p class="rec" id="recLine"></p>
+
+      <div class="ai" id="aiBox">
+        <div class="row"><h3 style="font-size:14px">AI 변화 설명</h3><span class="push" style="margin-left:auto"></span><button id="aiBtn" type="button" disabled>AI 연결 확인 중</button><button id="aiStop" type="button" class="ghost" hidden>중지</button></div>
+        <div class="ai-out" id="aiOut"><p class="note">점수가 왜 떨어졌는지, 소리가 어떻게 바뀌었는지를 Claude가 점검자용 문장으로 설명합니다. 분석 수치만 보내고 소리 파일은 보내지 않습니다.</p></div>
+      </div>
+
+      <div class="scope">
+        <div class="scope-bar"><strong>정상음과 소리 분포 비교</strong><span class="legend"><i style="background:var(--scope-text)"></i>정상음</span><span class="legend"><i style="background:var(--trace)"></i>현재</span><span class="legend"><i style="background:var(--trace2)"></i>변화량</span></div>
+        <canvas class="c-band" id="cvBand" aria-label="대역별 소리 지문 비교"></canvas>
+        <div class="scope-bar"><strong>이상 구간 들어보기</strong><span id="segTxt"></span></div>
+        <div class="row"><button type="button" id="pAB">▶ 정상음 → 현재 번갈아</button><button type="button" id="pBase">정상음</button><button type="button" id="pNow">현재</button><button type="button" id="pStop">■</button></div>
+        <div class="playstat" id="playStat"></div>
+        <div id="cycWrap">
+          <div class="scope-bar" style="margin-top:6px"><strong>주기 동기화 (반복 동작을 겹쳐 비교)</strong><span id="cycTxt"></span></div>
+          <canvas class="c-cycle" id="cvCycle" aria-label="1회 동작 주기별 음량"></canvas>
+        </div>
+      </div>
+
+      <details class="more">
+        <summary>상세 분석 (주파수 그래프 · 시간별 소리 지도 · 수치)</summary>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="kv" id="kv"></div>
+          <div class="scope">
+            <div class="scope-bar"><strong>주파수 그래프 (낮은 소리 → 높은 소리)</strong><span class="legend"><i style="background:var(--scope-text)"></i>정상음</span><span class="legend"><i style="background:var(--trace)"></i>현재</span></div>
+            <canvas class="c-spec" id="cvSpec"></canvas>
+            <div class="scope-bar"><strong>시간별 소리 지도</strong><span>가로 시간 · 세로 높은 소리 · 밝을수록 큰 소리</span></div>
+            <canvas class="c-sg" id="cvSg"></canvas>
+          </div>
+        </div>
+      </details>
+
+      <div class="row">
+        <button id="saveBtn" type="button">결과 저장</button>
+        <button id="baseBtn" type="button" class="ghost">정상음으로 등록</button>
+        <button id="calBtn" type="button" class="ghost" hidden>이 녹음으로 기기 보정</button>
+      </div>
+      <p class="note" id="actNote"></p>
+    </section>
+  </div>
+
+  <!-- ===== 이력 ===== -->
+  <div data-panel="hist" class="wrap" style="max-width:none" hidden>
+    <section class="card">
+      <div class="card-head"><h2>유사도 추이</h2><select id="eqSel2" aria-label="설비 선택" style="width:auto;margin-left:auto"></select></div>
+      <div class="scope">
+        <div class="scope-bar"><strong id="trendName"></strong><span class="legend"><i style="background:var(--danger)"></i>점검 권고 기준</span></div>
+        <canvas class="c-trend" id="cvTrend" aria-label="유사도 추이"></canvas>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>일시</th><th>구분</th><th>기기</th><th style="text-align:right">유사도</th><th>판정</th><th>의심 구간</th><th></th></tr></thead>
+        <tbody id="histBody"></tbody>
+      </table></div>
+      <div class="playstat" id="playStat2"></div>
+      <div class="row"><button id="expBtn" type="button" class="ghost">이력 복사 (엑셀 붙여넣기용)</button><span class="note" id="expNote">이 설비의 점검 기록을 표로 복사합니다. 점검 기록부나 보고서에 붙여 넣으세요.</span></div>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>정비 전후 비교 리포트</h2><select id="pairSel" aria-label="정비 건 선택" style="width:auto;margin-left:auto"></select></div>
+      <div class="report" id="report"></div>
+    </section>
+  </div>
+
+  <!-- ===== 설비·QR ===== -->
+  <div data-panel="eqs" class="wrap" style="max-width:none" hidden>
+    <section class="card">
+      <div class="card-head"><h2>설비 QR</h2><span class="aside">QR을 누르면 그 설비 점검 화면이 열립니다</span></div>
+      <div class="eqlist" id="eqList"></div>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2 id="eqFormTitle">설비 등록</h2><span class="aside">설비 종류에 관계없이 등록할 수 있습니다</span></div>
+      <div class="grid3">
+        <div class="field"><label for="nType">설비 종류</label><select id="nType"></select></div>
+        <div class="field"><label for="nName">설비명</label><input id="nName" type="text" value="엘리베이터 #2 권상기"></div>
+        <div class="field"><label for="nSt">역 · 호선</label><input id="nSt" type="text" value="2호선 을지로3가역"></div>
+        <div class="field"><label for="nPlace">설치 위치</label><input id="nPlace" type="text" value="승강기 기계실"></div>
+        <div class="field"><label for="nPos">측정 위치</label><input id="nPos" type="text" value="권상기 감속기 덮개 옆"></div>
+        <div class="field"><label for="nDist">측정 거리</label><input id="nDist" type="text" value="50cm"></div>
+        <div class="field" style="grid-column:1/-1"><label for="nState">가동 상태 (녹음할 때)</label><input id="nState" type="text" value="빈 카로 운행 중, 일정한 속도로 움직이는 구간"></div>
+      </div>
+      <div class="row"><button id="addEq" type="button">설비 추가</button><button id="cancelEdit" type="button" class="quiet" hidden>취소</button><span class="note" id="addNote">추가한 뒤 점검 화면에서 정상 상태 소리를 녹음해 '정상음으로 등록'을 누르세요.</span></div>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>측정 기기 보정</h2></div>
+      <p class="note">점검자마다 휴대폰 마이크 특성이 다릅니다. 새 기기로 정상 상태 설비를 한 번 녹음해 '이 녹음으로 기기 보정'을 누르면, 그 기기의 마이크 특성 곡선을 저장해 이후 측정에서 빼고 비교합니다.</p>
+      <div class="tbl-wrap"><table><thead><tr><th>기기</th><th>보정 상태</th><th>비고</th></tr></thead><tbody id="devBody"></tbody></table></div>
+      <div class="row"><input id="nDev" type="text" value="점검자 휴대폰 C" style="max-width:240px" aria-label="새 기기 이름"><button id="addDev" type="button" class="ghost">기기 추가</button></div>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>설정</h2></div>
+      <div class="field"><label for="qrBase">QR에 넣을 주소</label><input id="qrBase" type="text"></div>
+      <p class="note">QR 주소 끝에 설비번호(#ES-L2-0201 등)가 붙습니다. 휴대폰 기본 카메라로 QR을 찍으면 이 페이지가 그 설비로 열립니다.</p>
+      <div class="row"><button id="resetBtn" type="button" class="quiet">시연 데이터로 초기화</button><span class="note" id="resetNote"></span></div>
+    </section>
+  </div>
+
+  <!-- ===== 원리 ===== -->
+  <div data-panel="how" class="wrap" style="max-width:none" hidden>
+    <section class="card">
+      <div class="card-head"><h2>어떻게 판정하나</h2></div>
+      <div class="how">
+        <div><h3>소리 지문</h3><p>소리를 낮은 소리부터 높은 소리까지 40칸으로 나눠, 칸마다 소리가 얼마나 큰지 비율로 기록합니다. 사람 지문처럼 설비마다 모양이 다릅니다. 크기가 아니라 비율이라 녹음 거리가 조금 달라도 영향이 적습니다.</p></div>
+        <div><h3>정상음 유사도 0~100점</h3><p>등록한 정상음과 소리 분포가 얼마나 다른지, '딱딱' 하는 부딪힘 소리가 늘었는지, 반복 동작 중 특정 시점에 이상한 소리가 나는지를 합쳐 점수로 바꿉니다. 기준점수(기본 70점) 미만은 점검 권고, 기준+10점 미만은 주의입니다.</p></div>
+        <div><h3>주기 동기화</h3><p>에스컬레이터 디딤판처럼 같은 동작을 반복하는 설비는 몇 초마다 반복되는지 찾아, 여러 번의 반복을 겹쳐 정상음과 맞춰 봅니다. 그래서 "반복 동작의 60% 시점"처럼 이상한 소리가 나는 때를 짚어 줍니다.</p></div>
+        <div><h3>측정 품질과 휴대폰 보정</h3><p>소리가 잘리거나, 너무 작거나, 열차 · 방송 소리가 섞이면 다시 녹음하라고 알려 줍니다. 휴대폰마다 마이크가 달라 생기는 차이는 미리 등록한 보정값을 빼고 비교합니다.</p></div>
+        <div><h3>위험도와 점수 이력</h3><p>점검할 때마다 유사도 점수를 저장해 추이 그래프로 보여 줍니다. 위험도는 현재 점수, 최근 3회보다 얼마나 떨어졌는지, 최근 5회 중 이상 판정 횟수를 합친 값이라 계속 나빠지는 설비를 먼저 보게 합니다.</p></div>
+        <div><h3>AI 변화 설명</h3><p>점수가 왜 떨어졌는지를 문장으로 보여 줍니다. claude.ai에서 열면 Claude가 점검 권고와 안전 유의사항까지 풀어 씁니다. 일반 웹 주소에서는 정해진 규칙으로 만든 설명을 보여 줍니다.</p></div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>현장 확대 단계</h2></div>
+      <ol class="steps">
+        <li>시범 설비 선정: 에스컬레이터·송풍기·배수펌프 각 2~3대</li>
+        <li>정상음 초기 등록과 QR 부착, 측정 위치·거리 표준 지정</li>
+        <li>기존 청각 점검과 병행 운영하며 기준점수 조정</li>
+        <li>공조·변압기·차량기지 검수 설비로 확대</li>
+      </ol>
+      <p class="note">한계: 스마트폰 마이크는 50 Hz 이하 저음을 잘 담지 못하고 주변 소음 영향을 받습니다. 이 결과는 점검 우선순위를 정하는 1차 선별용이며, 진동 측정과 분해 점검으로 확인해야 합니다. 시연 데이터는 합성음과 가상 이력입니다. 소리 분석은 모두 휴대폰 안에서 하고 녹음 파일은 외부로 보내지 않습니다.</p>
+    </section>
+  </div>
+</div>
+<textarea id="copyArea" aria-hidden="true" tabindex="-1" style="position:absolute;left:-9999px;width:1px;height:1px"></textarea>
+
+<script>
+/*ENGINE-START*/
+const Engine = (() => {
+  const SR = 22050, TAU = Math.PI * 2;
+  const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+  const db = (p) => 10 * Math.log10(p + 1e-20);
+
+  function fft(re, im) {
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = -TAU / len, wr = Math.cos(ang), wi = Math.sin(ang);
+      for (let i = 0; i < n; i += len) {
+        let cr = 1, ci = 0;
+        for (let k = 0; k < len / 2; k++) {
+          const a = i + k, b = a + len / 2;
+          const tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+          re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+          const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+        }
+      }
+    }
+  }
+  const hannCache = {};
+  function hann(n) {
+    if (!hannCache[n]) { const w = new Float32Array(n); for (let i = 0; i < n; i++) w[i] = 0.5 - 0.5 * Math.cos((TAU * i) / (n - 1)); hannCache[n] = w; }
+    return hannCache[n];
+  }
+  function biquad(x, sr, fc, type) {
+    const w0 = (TAU * fc) / sr, cs = Math.cos(w0), al = Math.sin(w0) / (2 * Math.SQRT1_2);
+    let b0, b1, b2;
+    if (type === "hp") { b0 = (1 + cs) / 2; b1 = -(1 + cs); b2 = b0; } else { b0 = (1 - cs) / 2; b1 = 1 - cs; b2 = b0; }
+    const a0 = 1 + al, a1 = -2 * cs, a2 = 1 - al, y = new Float32Array(x.length);
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let i = 0; i < x.length; i++) {
+      const v = (b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0;
+      x2 = x1; x1 = x[i]; y2 = y1; y1 = v; y[i] = v;
+    }
+    return y;
+  }
+  function welch(x, N) {
+    const w = hann(N), hop = N >> 1, P = new Float64Array(N >> 1), re = new Float64Array(N), im = new Float64Array(N);
+    let frames = 0;
+    for (let s = 0; s + N <= Math.max(x.length, N); s += hop) {
+      for (let i = 0; i < N; i++) { re[i] = (x[s + i] || 0) * w[i]; im[i] = 0; }
+      fft(re, im);
+      for (let k = 0; k < N >> 1; k++) P[k] += re[k] * re[k] + im[k] * im[k];
+      frames++;
+      if (x.length < N) break;
+    }
+    for (let k = 0; k < P.length; k++) P[k] /= frames;
+    return P;
+  }
+  const median = (arr) => { const a = Array.from(arr).sort((p, q) => p - q); return a.length ? a[a.length >> 1] : 0; };
+  const pct = (arr, q) => { const a = Array.from(arr).sort((p, r) => p - r); return a.length ? a[Math.min(a.length - 1, Math.floor(q * a.length))] : 0; };
+  function moments(x) {
+    let m = 0; for (let i = 0; i < x.length; i++) m += x[i]; m /= x.length;
+    let m2 = 0, m4 = 0, peak = 0;
+    for (let i = 0; i < x.length; i++) { const d = x[i] - m, d2 = d * d; m2 += d2; m4 += d2 * d2; if (Math.abs(d) > peak) peak = Math.abs(d); }
+    m2 /= x.length; m4 /= x.length;
+    return { rms: Math.sqrt(m2), kurt: m4 / (m2 * m2 + 1e-30), peak };
+  }
+
+  // 모든 입력을 22.05 kHz 단일 채널로 맞춘다
+  function resample(x, srIn) {
+    if (srIn === SR) return x;
+    const y0 = srIn > SR ? biquad(biquad(x, srIn, SR * 0.45, "lp"), srIn, SR * 0.45, "lp") : x;
+    const ratio = srIn / SR, n = Math.floor(x.length / ratio), y = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const p = i * ratio, j = Math.floor(p), f = p - j; y[i] = y0[j] * (1 - f) + (y0[j + 1] || 0) * f; }
+    return y;
+  }
+
+  // 소리 지문: 50 Hz~9 kHz를 로그 간격 40개 대역으로 나눈 상대 에너지 분포
+  const NB = 40, BAND_F = Array.from({ length: NB }, (_, i) => 50 * Math.pow(9000 / 50, i / (NB - 1)));
+  const RANGES = [
+    { name: "낮은 소리", lo: 50, hi: 200, hint: "회전체 불균형·흔들림" },
+    { name: "중간 소리", lo: 200, hi: 1000, hint: "축 어긋남·톱니 맞물림·볼트 풀림" },
+    { name: "높은 소리", lo: 1000, hi: 4000, hint: "베어링 손상·금속끼리 부딪힘" },
+    { name: "아주 높은 소리", lo: 4000, hi: 9000, hint: "기름 부족·마찰·펌프 물거품(캐비테이션)" },
+  ];
+  const B4 = [[100, 500], [500, 2000], [2000, 5000], [5000, 10000]];
+  const HOP = 256, FN = 1024, DT = HOP / SR;
+
+  function frameAnalysis(x) {
+    const w = hann(FN), re = new Float64Array(FN), im = new Float64Array(FN), df = SR / FN;
+    const kTop = Math.round(8000 / df);
+    const tot = [], b4 = B4.map(() => []), cols = [];
+    for (let s = 0; s + FN <= x.length; s += HOP) {
+      for (let i = 0; i < FN; i++) { re[i] = x[s + i] * w[i]; im[i] = 0; }
+      fft(re, im);
+      const p = new Float64Array(FN / 2);
+      let t = 0;
+      for (let k = 2; k < FN / 2; k++) { p[k] = re[k] * re[k] + im[k] * im[k]; if (k * df >= 80) t += p[k]; }
+      tot.push(db(t));
+      B4.forEach(([lo, hi], j) => { let e = 0; for (let k = Math.round(lo / df); k < Math.min(FN / 2, Math.round(hi / df)); k++) e += p[k]; b4[j].push(db(e)); });
+      const col = new Float32Array(kTop);
+      for (let k = 0; k < kTop; k++) col[k] = db(p[k]);
+      cols.push(col);
+    }
+    return { tot, b4, cols, fTop: kTop * df };
+  }
+
+  // 1회 동작 주기: 프레임 음량의 자기상관 최대점
+  function detectCycle(fr) {
+    const env = fr.tot, n = env.length;
+    const sm = env.map((_, i) => (env[Math.max(0, i - 1)] + env[i] + env[Math.min(n - 1, i + 1)]) / 3);
+    const mu = sm.reduce((a, b) => a + b, 0) / n, e = sm.map((v) => v - mu);
+    let var0 = 0; for (const v of e) var0 += v * v; var0 /= n;
+    const Lmin = Math.round(0.3 / DT), Lmax = Math.floor(n / 2.2);
+    let best = -1, bestL = 0;
+    const r = [];
+    for (let L = Lmin; L <= Lmax; L++) {
+      let s = 0; for (let i = 0; i + L < n; i++) s += e[i] * e[i + L];
+      r[L] = s / (n - L) / (var0 + 1e-12);
+      if (r[L] > best) { best = r[L]; bestL = L; }
+    }
+    if (best < 0.45 || !bestL) return null;
+    let L = bestL;
+    if (r[L - 1] != null && r[L + 1] != null) { const a = r[L - 1], b = r[L], c = r[L + 1], d = a - 2 * b + c; if (d < 0) L += (0.5 * (a - c)) / d; }
+    const period = L * DT, NBIN = 48;
+    const prof = { tot: new Array(NBIN).fill(0), b4: B4.map(() => new Array(NBIN).fill(0)) }, cnt = new Array(NBIN).fill(0);
+    for (let i = 0; i < n; i++) {
+      const bin = Math.floor((((i * DT) / period) % 1) * NBIN) % NBIN;
+      prof.tot[bin] += env[i]; cnt[bin]++;
+      B4.forEach((_, j) => (prof.b4[j][bin] += fr.b4[j][i]));
+    }
+    for (let k = 0; k < NBIN; k++) { prof.tot[k] /= cnt[k] || 1; B4.forEach((_, j) => (prof.b4[j][k] /= cnt[k] || 1)); }
+    return { period, strength: best, prof };
+  }
+
+  function features(x) {
+    const P = welch(x, 8192), df = SR / 8192;
+    let total = 0; for (let k = Math.round(40 / df); k < P.length; k++) total += P[k];
+    const r = Math.sqrt(BAND_F[1] / BAND_F[0]);
+    const bands = BAND_F.map((fc) => { let s = 0; for (let k = Math.round(fc / r / df); k < Math.min(P.length, Math.round((fc * r) / df)); k++) s += P[k]; return +db(s / total).toFixed(2); });
+    let hf = 0; for (let k = Math.round(2000 / df); k < P.length; k++) hf += P[k];
+    const m = moments(x);
+    const hp = biquad(biquad(x, SR, 1000, "hp"), SR, 1000, "hp");
+    const hk = moments(hp.subarray(Math.floor(SR * 0.05))).kurt;
+    const fr = frameAnalysis(x);
+    const cycle = detectCycle(fr);
+    const b4mean = fr.b4.map((a) => a.reduce((s, v) => s + v, 0) / a.length);
+    let clip = 0; for (let i = 0; i < x.length; i++) if (Math.abs(x[i]) >= 0.98) clip++;
+    return {
+      bands, levelDb: +db(m.rms * m.rms).toFixed(2), kurt: +hk.toFixed(3), hfRatio: +(hf / total).toFixed(4),
+      duration: x.length / SR, clipFrac: clip / x.length, b4mean, cycle,
+      _P: P, _frames: fr,
+    };
+  }
+
+  // 측정 품질: 재측정을 요청할지 판단
+  function quality(f, base, opt = {}) {
+    const issues = [];
+    if (f.duration < 3) issues.push({ lvl: "fail", msg: "녹음이 3초보다 짧습니다. 5초 이상 녹음해 주세요." });
+    if (f.clipFrac > 0.001) issues.push({ lvl: "fail", msg: "소리가 너무 커서 잘렸습니다. 조금 더 떨어져서 다시 녹음해 주세요." });
+    if (f.levelDb < -62) issues.push({ lvl: "fail", msg: "소리가 너무 작습니다. 안내된 거리까지 가까이 가서 녹음해 주세요." });
+    const tot = f._frames.tot, low = f._frames.b4[0];
+    // 동작 주기(없으면 0.5초) 길이의 창으로 평균한 음량이 일부 구간에서만 튀면 돌발 소음
+    const wl = Math.max(1, Math.round((f.cycle ? f.cycle.period : 0.5) / DT)), st = Math.max(1, Math.round(wl / 4));
+    let jump = 0;
+    for (const bb of f._frames.b4) {
+      const lin = bb.map((v) => Math.pow(10, v / 10)), wins = [];
+      for (let s = 0; s + wl <= lin.length; s += st) { let e = 0; for (let i = s; i < s + wl; i++) e += lin[i]; wins.push(db(e / wl)); }
+      if (wins.length > 2) jump = Math.max(jump, Math.max(...wins) - median(wins));
+    }
+    f.jump = jump;
+    // 엘리베이터처럼 출발·정지로 소리 크기가 원래 바뀌는 설비는 기준을 넓히고 경고만 한다
+    if (opt.varying) { if (jump > 15) issues.push({ lvl: "warn", msg: "녹음 중 소리 크기가 크게 바뀌었습니다. 일정한 속도로 움직이는 구간만 녹음하면 더 정확합니다." }); }
+    else if (jump > 6) issues.push({ lvl: "fail", msg: "열차·안내방송·대화 같은 돌발 소음이 섞였습니다. 조용할 때 다시 녹음해 주세요." });
+    if (base && Math.abs(f.levelDb - base.levelDb) > 10) issues.push({ lvl: "warn", msg: `기준음과 음량이 ${Math.abs(f.levelDb - base.levelDb).toFixed(0)} dB 다릅니다. 측정 위치·거리가 안내와 같은지 확인해 주세요.` });
+    void tot;
+    return { ok: !issues.some((i) => i.lvl === "fail"), issues };
+  }
+
+  function compare(cur, base, opt = {}) {
+    const xs = BAND_F.map((f) => Math.log2(f / 1000));
+    // 기기 보정: 등록된 기기 특성 곡선이 있으면 빼고, 없으면 완만한 기울기만 추정해 뺀다
+    const dc = opt.devCurve;
+    const diff = cur.bands.map((v, i) => v - base.bands[i] - (dc ? dc[i] : 0));
+    const w = base.bands.map((v) => clamp((v + 45) / 25, 0.05, 1));
+    let sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (let i = 0; i < NB; i++) { sw += w[i]; sx += w[i] * xs[i]; sy += w[i] * diff[i]; sxx += w[i] * xs[i] * xs[i]; sxy += w[i] * xs[i] * diff[i]; }
+    let a = sy / sw, b = 0;
+    if (opt.deviceCorr && !dc) {
+      b = clamp((sw * sxy - sx * sy) / (sw * sxx - sx * sx), -2, 2);
+      a = (sy - b * sx) / sw;
+    }
+    const corr = diff.map((d, i) => clamp(d - (a + b * xs[i]), -20, 20));
+    let s2 = 0; for (let i = 0; i < NB; i++) s2 += w[i] * corr[i] * corr[i];
+    const dBand = Math.sqrt(s2 / sw);
+    const dK = Math.max(0, cur.kurt - base.kurt - 0.5);
+    const dEff0 = Math.max(0, dBand - 0.4) + 2 * dK;
+    const ranges = RANGES.map((R) => {
+      let s = 0, c = 0;
+      BAND_F.forEach((f, i) => { if (f >= R.lo && f < R.hi) { s += corr[i] * w[i]; c += w[i]; } });
+      return { ...R, diff: c ? s / c : 0 };
+    });
+
+    // 주기 동기화 비교: 위상을 맞춘 뒤 소리가 커진 구간 찾기
+    let cycle = null;
+    if (cur.cycle && base.cycle) {
+      const pc = cur.cycle, pb = base.cycle, NBIN = pc.prof.tot.length;
+      if (Math.abs(pc.period / pb.period - 1) < 0.2) {
+        let bestS = 0, bestC = -1e9;
+        const mc = pc.prof.tot.reduce((x, y) => x + y) / NBIN, mb = pb.prof.tot.reduce((x, y) => x + y) / NBIN;
+        for (let s = 0; s < NBIN; s++) {
+          let c = 0; for (let k = 0; k < NBIN; k++) c += (pc.prof.tot[k] - mc) * (pb.prof.tot[(k + s) % NBIN] - mb);
+          if (c > bestC) { bestC = c; bestS = s; }
+        }
+        const off = B4.map((_, j) => median(pc.prof.b4[j].map((v, k) => v - pb.prof.b4[j][(k + bestS) % NBIN])));
+        const dev = [];
+        for (let k = 0; k < NBIN; k++) {
+          // 기준 프로파일을 앞뒤 1칸 팽창시켜 위상 어긋남에 강하게
+          let m = 0;
+          B4.forEach((_, j) => {
+            const bb = pb.prof.b4[j], at3 = [-1, 0, 1].map((d) => bb[(k + bestS + d + NBIN) % NBIN]);
+            m = Math.max(m, pc.prof.b4[j][k] - Math.max(...at3) - off[j]);
+          });
+          dev.push(m);
+        }
+        // 기준음 주기에서 가장 큰 소리(예: 콤 플레이트 통과음)를 0%로 삼아 위치를 표시
+        const pk = pb.prof.tot.indexOf(Math.max(...pb.prof.tot));
+        const ci = (r) => (((r + pk - bestS) % NBIN) + NBIN) % NBIN;
+        const devR = dev.map((_, r) => dev[ci(r)]);
+        const mx = Math.max(...devR), at = devR.indexOf(mx);
+        let seg = null;
+        if (mx > 3) {
+          let lo = at, hi = at;
+          while (devR[(lo - 1 + NBIN) % NBIN] > mx / 2 && hi - lo < NBIN - 1) lo--;
+          while (devR[(hi + 1) % NBIN] > mx / 2 && hi - lo < NBIN - 1) hi++;
+          const r0 = (lo + NBIN) % NBIN, r1 = hi + 1;
+          seg = { from: r0 / NBIN, to: (r1 % NBIN || NBIN) / NBIN, peakDb: mx, curFrom: ci(r0) / NBIN, baseFrom: ((r0 + pk) % NBIN) / NBIN, width: (r1 - lo) / NBIN };
+        }
+        cycle = { period: pc.period, basePeriod: pb.period, dev: devR, seg, curProf: devR.map((_, r) => pc.prof.tot[ci(r)]), baseProf: devR.map((_, r) => pb.prof.tot[(r + pk) % NBIN]) };
+      } else cycle = { mismatch: true, period: pc.period, basePeriod: pb.period };
+    }
+
+    // 시간 구간 비교: 0.5초 창 중 기준보다 가장 크게 달라진 곳
+    const fr = cur._frames, win = Math.round(0.5 / DT);
+    const bOff = B4.map((_, j) => median(fr.b4[j]) - base.b4mean[j]);
+    let wBest = 0, wAt = 0;
+    for (let s = 0; s + win <= fr.tot.length; s += Math.round(win / 2)) {
+      let m = 0;
+      B4.forEach((_, j) => { let e = 0; for (let i = s; i < s + win; i++) e += fr.b4[j][i]; m = Math.max(m, e / win - base.b4mean[j] - bOff[j]); });
+      if (m > wBest) { wBest = m; wAt = s; }
+    }
+    const dCyc = cycle && cycle.seg ? Math.max(0, cycle.seg.peakDb - 3) * 0.6 : 0;
+    const dEff = dEff0 + dCyc;
+    const score = Math.round(100 * Math.exp(-dEff / 5));
+    return { score, dBand, dK, dCyc, tilt: b, corr, diff, ranges, cycle, window: { t0: wAt * DT, t1: (wAt + win) * DT, dev: wBest } };
+  }
+
+  // 같은 설비를 기준 기기와 새 기기로 녹음해 새 기기의 마이크 특성 곡선(dB)을 얻는다
+  function deviceCurve(newF, refF) {
+    const d = newF.bands.map((v, i) => v - refF.bands[i]);
+    const w = refF.bands.map((v) => clamp((v + 45) / 25, 0.05, 1));
+    const sm = d.map((_, i) => { let s = 0, c = 0; for (let k = Math.max(0, i - 2); k <= Math.min(NB - 1, i + 2); k++) { s += d[k] * w[k]; c += w[k]; } return s / c; });
+    let mu = 0, sw = 0; sm.forEach((v, i) => { mu += v * w[i]; sw += w[i]; }); mu /= sw;
+    return sm.map((v) => +(v - mu).toFixed(2));
+  }
+
+  // 예시 소리 합성: 설비 3종의 운전음과 고장음을 단순화한 모형
+  function synth(o) {
+    const type = o.type, fault = o.fault || "none", sev = o.sev ?? 1, dur = o.dur || 6;
+    let seed = (o.seed || 1) * 7919 + 13;
+    const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    const gauss = () => Math.sqrt(-2 * Math.log(rand() + 1e-12)) * Math.cos(TAU * rand());
+    const n = Math.floor(SR * dur), x = new Float32Array(n);
+    const rpm = { escalator: 1740, fan: 1180, pump: 1760 }[type], fr = rpm / 60;
+    const amp = { 1: 0.03, 2: 0.012 };
+    if (type === "fan") { amp[6] = 0.05; amp[12] = 0.015; }
+    if (type === "pump") amp[5] = 0.04;
+    if (fault === "imbalance") { amp[1] = 0.03 + 0.22 * sev; amp[3] = (amp[3] || 0) + 0.07 * sev; amp[4] = (amp[4] || 0) + 0.05 * sev; }
+    if (fault === "misalign") { amp[2] = 0.012 + 0.19 * sev; amp[3] = 0.06 * sev; }
+    if (fault === "looseness") for (let k = 3; k <= 10; k++) amp[k] = (amp[k] || 0) + 0.05 * sev;
+    const ph = Object.keys(amp).map((k) => rand() * TAU);
+    const a = Math.exp((-TAU * 1500) / SR), aw = Math.exp((-TAU * 4000) / SR);
+    let lp = 0, lw = 0;
+    const jitter = 1 + (rand() - 0.5) * 0.004;
+    for (let i = 0; i < n; i++) {
+      const t = i / SR;
+      lp = a * lp + (1 - a) * gauss() * 0.09;
+      let v = lp + gauss() * 0.002;
+      Object.keys(amp).forEach((k, j) => (v += amp[k] * Math.sin(TAU * fr * jitter * k * t + ph[j])));
+      v += 0.006 * Math.sin(TAU * 120 * t);
+      if (type === "escalator") v += 0.02 * Math.sin(TAU * 410 * t) * (1 + 0.3 * Math.sin(TAU * fr * t));
+      if (type === "fan") { lw = aw * lw + (1 - aw) * gauss() * 0.06; v += lw; }
+      if (type === "pump") v += 0.025 * Math.sin(TAU * 820 * t + Math.sin(TAU * 3 * t));
+      if (fault === "looseness") v += 0.04 * sev * Math.sin(TAU * fr * 0.5 * t);
+      x[i] = v;
+    }
+    const ringAt = (t0, A, f, tau, len) => {
+      const s = Math.floor(t0 * SR), L = Math.floor(SR * len);
+      for (let j = 0; j < L && s + j < n; j++) x[s + j] += A * Math.exp(-j / (SR * tau)) * Math.sin(TAU * f * (j / SR));
+    };
+    if (type === "escalator") {
+      // 디딤판 체인 1회전 주기 1.5초마다 콤 플레이트 통과음
+      const P = 1.5, off = rand() * P;
+      for (let t0 = off; t0 < dur; t0 += P) {
+        ringAt(t0, 0.3, 180, 0.03, 0.12); ringAt(t0 + 0.01, 0.08, 650, 0.015, 0.06);
+        if (fault === "step") { ringAt(t0 + 0.62 * P, 1.0 * sev, 1250, 0.008, 0.05); ringAt(t0 + 0.62 * P + 0.004, 0.4 * sev, 2900, 0.004, 0.03); }
+      }
+    }
+    if (fault === "bearing") {
+      const per = 1 / (3.58 * fr);
+      for (let t0 = 0.01; t0 < dur - 0.01; t0 += per) ringAt(t0, 0.5 * sev * (0.7 + 0.3 * rand()), 3200, 0.0012, 0.008);
+    }
+    if (fault === "friction") {
+      const w = new Float32Array(n); for (let i = 0; i < n; i++) w[i] = gauss() * 0.1 * sev;
+      const h = biquad(w, SR, 2000, "hp"); for (let i = 0; i < n; i++) x[i] += h[i];
+    }
+    if (fault === "cavitation") {
+      const w = new Float32Array(n); let t0 = 0;
+      while (true) {
+        t0 += -Math.log(rand() + 1e-9) / 60; if (t0 > dur - 0.01) break;
+        const s = Math.floor(t0 * SR), len = Math.floor(SR * (0.002 + 0.004 * rand())), A = 0.25 * sev * rand();
+        for (let j = 0; j < len && s + j < n; j++) w[s + j] += A * gauss() * Math.exp((-j / len) * 2);
+      }
+      const h = biquad(w, SR, 1500, "hp"); for (let i = 0; i < n; i++) x[i] += h[i];
+    }
+    if (o.noise === "train") {
+      // 열차 진입음: 2~4.5초 저주파 굉음과 제동음
+      const w = new Float32Array(n); let l = 0;
+      for (let i = 0; i < n; i++) { l = 0.96 * l + 0.04 * gauss(); w[i] = l; }
+      for (let i = 0; i < n; i++) {
+        const t = i / SR, env = t > 2 && t < 4.5 ? Math.sin((Math.PI * (t - 2)) / 2.5) : 0;
+        x[i] += env * (w[i] * 1.2 + 0.05 * Math.sin(TAU * 2400 * t + 3 * Math.sin(TAU * 5 * t)));
+      }
+    }
+    if (o.device === "B") {
+      // 다른 휴대폰: 저음이 약하고 고음이 덜 잡히는 마이크
+      const h = biquad(x, SR, 700, "hp"), l2 = biquad(x, SR, 7000, "lp");
+      for (let i = 0; i < n; i++) x[i] = 0.5 * x[i] + 0.45 * h[i] - 0.25 * (x[i] - l2[i]);
+      for (let i = 0; i < n; i++) x[i] *= 1.4;
+    }
+    return x;
+  }
+
+  return { SR, BAND_F, RANGES, DT, resample, features, quality, compare, deviceCurve, synth, welch };
+})();
+/*ENGINE-END*/
+
+const SEED = {"equipment":[{"id":"ES-L2-0201","name":"에스컬레이터 E/S #2 (상행)","type":"escalator","station":"2호선 시청역","place":"3번 출입구","threshold":70,"guide":{"pos":"기계실 점검구 덮개 위, 구동기 쪽 끝단","dist":"바닥면에서 30cm","state":"상행 정속 운전, 승객 없을 때"},"baselineId":"ES-L2-0201-B"},{"id":"FAN-L2-0105","name":"터널 환기팬 #1 (송풍기)","type":"fan","station":"2호선 을지로입구역","place":"환기실","threshold":70,"guide":{"pos":"팬 하우징 점검창 앞 안전펜스 밖","dist":"하우징에서 1m","state":"정격 풍량 운전 10분 경과 후"},"baselineId":"FAN-L2-0105-B"},{"id":"PUMP-L2-0310","name":"배수펌프 #2","type":"pump","station":"2호선 충정로역","place":"배수펌프장","threshold":70,"guide":{"pos":"펌프 토출 측 배관 플랜지 옆 점검대","dist":"펌프 케이싱에서 50cm","state":"단독 운전, 집수정 수위 중간 이상"},"baselineId":"PUMP-L2-0310-B"},{"id":"EL-L2-0401","name":"엘리베이터 #1 권상기 (실측)","type":"elevator","station":"2호선 시청역","place":"승강기 기계실","threshold":70,"guide":{"pos":"권상기(모터·감속기) 옆, 회전부에 손이 닿지 않는 곳","dist":"50cm","state":"빈 카로 운행 중, 일정한 속도로 움직이는 구간"},"baselineId":null}],"measurements":[{"id":"ES-L2-0201-B","eq":"ES-L2-0201","at":"2026-08-03 06:10","kind":"기준음 등록","device":"A","score":100,"grade":"normal","quality":"양호","feat":{"bands":[-25.7,-15.3,-25.1,-24.1,-22.7,-23.7,-22.2,-19.6,-18.4,-11.7,-8.5,-17.6,-19.5,-19.5,-18.6,-18.3,-10.4,-17.6,-17.1,-16.1,-16.1,-15.9,-16.1,-15.5,-15.5,-15.2,-15.4,-15.6,-15.6,-15.8,-16,-16.1,-16.4,-16.7,-17.1,-17.4,-17.6,-17.9,-17.9,-17.7],"levelDb":-25.4,"kurt":3.02,"hfRatio":0.265,"b4mean":[20.2,21.3,19.1,16.5],"cycle":{"period":1.5,"strength":0.92,"prof":{"tot":[25.8,25.6,25.8,25.5,25.5,25.5,25.6,25.3,25.5,27.4,35.3,30.1,26.4,25.6,25.7,25.6,25.6,25.3,25.6,25.8,25.7,25.3,25.4,25.8,25.6,25.8,25.3,25.7,25.4,25.8,25.7,25.7,25.7,25.8,25.5,25.7,25.7,26,25.8,25.6,25.7,25.6,25.7,25.7,25.6,25.7,25.8,25.6],"b4":[[20,19.8,19.4,19.8,19.6,20,19.8,18.8,19.7,23.1,34.7,28.5,22.1,19.5,19.6,19.5,18.9,18.9,19.7,20.2,19.6,19.1,19,20.2,20,20.1,18.9,19.9,18.7,19.6,19.3,19.8,20.4,20.1,19.6,20.3,19.4,20.4,19.3,18.8,19.7,19.4,20,20.1,18.8,20.1,20,19.7],[20.9,20.7,21.8,21,20.9,20.9,21.2,20.9,21.1,21.2,23.7,22.2,21.1,21.1,21.6,21.2,21.5,20.9,21,21,21.3,20.6,21,21.6,20.9,21.6,20.9,21.1,21.4,21.8,21.5,21.2,21.1,21.3,21,21,21.5,21.6,21.9,21.7,21.5,21.2,21.1,21.2,21.4,20.9,21.2,21.2],[19.6,19.6,19.2,19,19.1,18.8,18.9,18.9,18.8,19.1,19.5,19.2,19.1,19.1,18.9,19,19.1,19.2,19.2,19.4,19,19.1,19.2,18.9,19,18.8,19.1,19.4,18.9,19,19.2,19.1,19.2,19.4,19.2,18.8,19.1,19.4,19.1,19.3,19,19.1,19.1,19.2,19.4,19.2,19.5,18.8],[16.7,16.6,16.5,16.3,16.3,16.3,16.3,16.5,16.6,16.8,16.9,16.5,16.3,16.5,16.6,16.8,16.8,16.5,16.5,16.2,16.6,16.7,16.6,16.5,16.4,16.6,16.3,16.6,16.4,16.4,16.2,16.4,16.3,16.3,16.3,16.3,16.4,16.6,16.4,16.3,16.4,16.5,16.5,16.4,16.5,16.8,16.4,16.4]]}}},"src":{"synth":{"type":"escalator","seed":1}},"demo":true},{"id":"ES-L2-0201-1","eq":"ES-L2-0201","at":"2026-08-17 06:05","kind":"정기","device":"A","score":95,"grade":"normal","quality":"양호","feat":{"bands":[-25.2,-15.1,-25.4,-23.8,-24.8,-21.9,-22.5,-18.6,-19.3,-12.7,-10.5,-17.7,-19.5,-19.3,-18.6,-18.2,-9.8,-17.5,-16.8,-15.7,-15.9,-15.8,-15.4,-15.1,-15,-14.8,-15,-15,-15,-15.4,-15.8,-15.8,-16.1,-16.4,-16.7,-16.9,-17.3,-17.4,-17.5,-17.4],"levelDb":-25.5,"kurt":3.01,"hfRatio":0.2876,"b4mean":[20.2,21.4,19.1,16.5]},"src":{"synth":{"type":"escalator","seed":2}},"demo":true,"ranges":[-0.4,0,0.2,0.2],"cycleSeg":null},{"id":"ES-L2-0201-2","eq":"ES-L2-0201","at":"2026-08-31 06:12","kind":"정기","device":"B","score":97,"grade":"normal","quality":"양호","feat":{"bands":[-27.8,-17.3,-27.3,-26.5,-26.8,-25.4,-25,-21.6,-21.9,-16.3,-13.3,-21.5,-23,-22.7,-21.9,-22.1,-14,-21.3,-20.5,-17.9,-17,-16.1,-14.6,-13.9,-13.3,-12.9,-12.9,-12.6,-12.4,-12.6,-13.1,-13.3,-13.7,-14,-14.6,-15.1,-15.8,-16.8,-17.7,-17.6],"levelDb":-26.2,"kurt":3,"hfRatio":0.4465,"b4mean":[16.2,21.7,21.1,16.8]},"src":{"synth":{"type":"escalator","seed":3,"device":"B"}},"demo":true,"ranges":[-0.2,0,0.2,0],"cycleSeg":null},{"id":"ES-L2-0201-3","eq":"ES-L2-0201","at":"2026-09-14 06:08","kind":"정기","device":"A","score":95,"grade":"normal","quality":"양호","feat":{"bands":[-24.6,-15,-24,-24.3,-23.7,-22.3,-23.2,-18.2,-19.3,-13.5,-10.1,-18.5,-19.4,-19,-18.8,-17.8,-9.7,-17.3,-17.2,-15.8,-16.3,-16,-15.6,-15.2,-14.5,-14.9,-14.9,-15.1,-15.2,-15.3,-15.5,-15.8,-16.2,-16.4,-16.8,-17.1,-17.3,-17.4,-17.5,-17.4],"levelDb":-25.3,"kurt":3.08,"hfRatio":0.2888,"b4mean":[20.4,21.3,19.1,16.5]},"src":{"synth":{"type":"escalator","fault":"step","sev":0.15,"seed":4}},"demo":true,"ranges":[-0.3,0,0.3,0.2],"cycleSeg":null},{"id":"ES-L2-0201-4","eq":"ES-L2-0201","at":"2026-09-28 06:15","kind":"정기","device":"A","score":80,"grade":"normal","quality":"양호","feat":{"bands":[-26.1,-15.2,-25.4,-24.8,-24.1,-22.2,-23.6,-18.3,-19.9,-13.2,-9.1,-18.3,-19,-19.8,-19.3,-17.8,-10.2,-17.2,-17.3,-15.4,-16.1,-16.3,-15.8,-15.3,-14.1,-15.1,-15.2,-15.2,-15.2,-15.5,-15.7,-15.8,-16.3,-16.6,-16.8,-17.1,-17.4,-17.6,-17.8,-17.6],"levelDb":-25.3,"kurt":3.27,"hfRatio":0.2784,"b4mean":[20.3,21.4,19.2,16.5]},"src":{"synth":{"type":"escalator","fault":"step","sev":0.2,"seed":5}},"demo":true,"ranges":[-0.5,0,0.3,0.2],"cycleSeg":[0.625,0.6458333333333334]},{"id":"ES-L2-0201-5","eq":"ES-L2-0201","at":"2026-10-12 06:09","kind":"정기","device":"A","score":62,"grade":"alert","quality":"양호","feat":{"bands":[-26.9,-15.9,-25,-24.6,-24.4,-24.2,-22.8,-17.8,-18.9,-12,-8.7,-18.9,-19.6,-19.8,-18.9,-18.6,-10.5,-18.1,-17.4,-15.8,-16.4,-16.2,-16,-15.5,-12.3,-15.2,-15.6,-15.6,-15.8,-15.8,-16,-15.8,-16.5,-16.9,-17.1,-17.5,-17.8,-17.9,-17.9,-17.9],"levelDb":-25.2,"kurt":3.65,"hfRatio":0.2613,"b4mean":[20.2,21.4,19.2,16.5]},"src":{"synth":{"type":"escalator","fault":"step","sev":0.25,"seed":6}},"demo":true,"ranges":[-0.2,-0.2,0.4,0],"cycleSeg":[0.625,0.6458333333333334]},{"id":"FAN-L2-0105-B","eq":"FAN-L2-0105","at":"2026-07-20 14:00","kind":"기준음 등록","device":"A","score":100,"grade":"normal","quality":"양호","feat":{"bands":[-28.2,-26.6,-27.4,-25.6,-26.2,-25.2,-12.3,-6.9,-23.3,-22.8,-22.6,-22.2,-15.1,-21.5,-20.9,-20,-19.5,-18.5,-18.5,-18,-17.5,-17,-16.7,-16.5,-16.2,-15.8,-15.6,-15.5,-15.4,-15.2,-15.3,-15.2,-15.2,-15.2,-15.2,-15.3,-15.2,-15.4,-15.3,-15.1],"levelDb":-22.6,"kurt":2.98,"hfRatio":0.387,"b4mean":[25.3,23.4,23,21.8]},"src":{"synth":{"type":"fan","seed":1}},"demo":true},{"id":"FAN-L2-0105-6","eq":"FAN-L2-0105","at":"2026-08-03 14:10","kind":"정기","device":"A","score":100,"grade":"normal","quality":"양호","feat":{"bands":[-27.3,-27.4,-26.9,-26.9,-25.8,-25,-11.8,-7,-23,-23.1,-23.2,-22.5,-15.5,-20.5,-20.5,-20.2,-19.7,-18.8,-18.8,-17.9,-17.6,-17.3,-16.8,-16.3,-16.1,-16,-15.7,-15.4,-15.2,-15.1,-15.1,-15.1,-15.2,-15.3,-15.2,-15.3,-15.3,-15.3,-15.2,-15.1],"levelDb":-22.7,"kurt":3,"hfRatio":0.3905,"b4mean":[25.2,23.3,23,21.8]},"src":{"synth":{"type":"fan","seed":2}},"demo":true,"ranges":[0,0,0.1,0],"cycleSeg":null},{"id":"FAN-L2-0105-7","eq":"FAN-L2-0105","at":"2026-08-17 14:05","kind":"정기","device":"B","score":100,"grade":"normal","quality":"양호","feat":{"bands":[-30.9,-30.6,-30.1,-29.4,-29.3,-28.6,-14.4,-10.4,-27.2,-26.2,-26,-25.7,-18.7,-24.6,-24.8,-24.3,-23.7,-22.7,-22,-20.3,-19,-17.8,-16.3,-15.3,-14.7,-13.9,-13.6,-13.4,-13.1,-12.8,-12.8,-12.8,-12.9,-13.1,-13.3,-13.6,-14.2,-15.1,-15.6,-15.5],"levelDb":-23.1,"kurt":3,"hfRatio":0.5472,"b4mean":[21.7,23.9,25,22]},"src":{"synth":{"type":"fan","seed":3,"device":"B"}},"demo":true,"ranges":[0,0.1,0.1,-0.1],"cycleSeg":null},{"id":"FAN-L2-0105-8","eq":"FAN-L2-0105","at":"2026-08-31 13:55","kind":"정기","device":"A","score":100,"grade":"normal","quality":"양호","feat":{"bands":[-27.3,-28.1,-27.4,-25.7,-25.8,-25.8,-10.8,-7.3,-23.4,-23.6,-22.8,-22.4,-15.3,-21.3,-20.7,-20,-19.5,-19.1,-18.3,-18.1,-17.7,-17.2,-16.8,-16.4,-16.3,-15.8,-15.4,-15.4,-15.1,-15.2,-15.5,-15.1,-15.2,-15.3,-15.2,-15.3,-15.4,-15.3,-15.3,-15.1],"levelDb":-22.6,"kurt":2.99,"hfRatio":0.3864,"b4mean":[25.3,23.4,23,21.7]},"src":{"synth":{"type":"fan","seed":4}},"demo":true,"ranges":[0,0,0.1,0],"cycleSeg":null},{"id":"FAN-L2-0105-9","eq":"FAN-L2-0105","at":"2026-09-14 14:20","kind":"정기","device":"A","score":100,"grade":"normal","quality":"양호","feat":{"bands":[-27.6,-26.8,-28.3,-26.7,-25.8,-25.8,-12.2,-6.9,-22.9,-23.4,-23.3,-22.7,-15.2,-20.7,-20.3,-20.1,-19.7,-18.9,-18.4,-18.1,-17.5,-17.1,-16.7,-16.7,-16.6,-16,-15.6,-15.3,-15.2,-15.2,-15,-15.1,-15.1,-15.1,-15.2,-15.3,-15.4,-15.3,-15.3,-15.2],"levelDb":-22.6,"kurt":3,"hfRatio":0.3916,"b4mean":[25.3,23.4,23.1,21.8]},"src":{"synth":{"type":"fan","seed":5}},"demo":true,"ranges":[-0.2,0.1,0.1,0.1],"cycleSeg":null},{"id":"FAN-L2-0105-10","eq":"FAN-L2-0105","at":"2026-09-28 14:02","kind":"정기","device":"A","score":92,"grade":"normal","quality":"양호","feat":{"bands":[-28.1,-22,-25.4,-23.6,-25.8,-25.8,-11.3,-7.3,-23.2,-23.3,-22.6,-22.1,-15.3,-21.1,-20.6,-19.9,-19.8,-18.8,-18.8,-17.9,-17.9,-17,-16.7,-16.3,-16.1,-15.9,-15.9,-15.5,-15.4,-15.4,-15.1,-15.2,-15.3,-15.2,-15.2,-15.2,-15.3,-15.3,-15.3,-15.1],"levelDb":-21.9,"kurt":2.99,"hfRatio":0.3854,"b4mean":[25.3,23.4,23,21.8]},"src":{"synth":{"type":"fan","fault":"imbalance","sev":0.1,"seed":6}},"demo":true,"ranges":[0.6,-0.2,-0.2,-0.1],"cycleSeg":null},{"id":"FAN-L2-0105-11","eq":"FAN-L2-0105","at":"2026-10-12 14:11","kind":"정기","device":"A","score":79,"grade":"caution","quality":"양호","feat":{"bands":[-27.9,-17.7,-24.1,-20.6,-23.1,-24.8,-12,-7.1,-23.7,-23.8,-22.7,-22.1,-15.3,-21.4,-20.7,-20.2,-19.4,-19.1,-19,-18.1,-17.3,-17.2,-16.6,-16.3,-16.4,-15.8,-15.6,-15.6,-15.4,-15.5,-15.3,-15.3,-15.2,-15.4,-15.3,-15.5,-15.6,-15.5,-15.4,-15.2],"levelDb":-21,"kurt":2.99,"hfRatio":0.3755,"b4mean":[25.2,23.5,23,21.8]},"src":{"synth":{"type":"fan","fault":"imbalance","sev":0.2,"seed":7}},"demo":true,"ranges":[1.3,-0.4,-0.3,-0.5],"cycleSeg":null},{"id":"PUMP-L2-0310-B","eq":"PUMP-L2-0310","at":"2026-06-15 10:00","kind":"기준음 등록","device":"A","score":100,"grade":"normal","quality":"양호","feat":{"bands":[-27.4,-15.5,-23.2,-25.1,-26.1,-25.2,-24.1,-19.9,-5.5,-22.7,-22.4,-21,-21.6,-20.5,-19.3,-19.4,-18.9,-18.5,-17.8,-17.3,-16.9,-8.8,-16.2,-16.1,-16.1,-15.9,-16,-15.7,-15.8,-16.3,-16.5,-16.8,-17.1,-17.5,-17.6,-18,-18.2,-18.3,-18.4,-18.3],"levelDb":-24.7,"kurt":3,"hfRatio":0.2343,"b4mean":[23.2,22.9,19.1,16.5]},"src":{"synth":{"type":"pump","seed":1}},"demo":true},{"id":"PUMP-L2-0310-12","eq":"PUMP-L2-0310","at":"2026-07-13 10:05","kind":"정기","device":"A","score":100,"grade":"normal","quality":"양호","feat":{"bands":[-26.9,-15.9,-24.6,-25.6,-25.9,-25.8,-24.8,-20,-5.5,-22.4,-22.1,-21.3,-20.8,-20.8,-20.1,-19.5,-18.6,-18.7,-17.9,-17.7,-17.1,-8.8,-16.3,-16,-15.8,-15.9,-15.9,-15.9,-16,-16.3,-16.3,-16.7,-17.1,-17.4,-17.6,-17.8,-18.2,-18.4,-18.3,-18.2],"levelDb":-24.7,"kurt":3,"hfRatio":0.2351,"b4mean":[23.2,22.9,19.1,16.5]},"src":{"synth":{"type":"pump","seed":2}},"demo":true,"ranges":[-0.1,0,0.1,0.1],"cycleSeg":null},{"id":"PUMP-L2-0310-13","eq":"PUMP-L2-0310","at":"2026-08-10 10:12","kind":"정기","device":"A","score":100,"grade":"normal","quality":"양호","feat":{"bands":[-27.7,-16.1,-23.9,-25,-25,-24.4,-24.9,-19.8,-5.5,-22.6,-22.5,-21.1,-21,-20.4,-19.4,-19.4,-19.2,-18.1,-17.7,-16.9,-17.3,-8.9,-16.3,-15.9,-16.1,-16.1,-15.9,-15.8,-16.2,-16.4,-16.5,-16.8,-17,-17.3,-17.7,-17.8,-18,-18.2,-18.4,-18.3],"levelDb":-24.7,"kurt":3.01,"hfRatio":0.2339,"b4mean":[23.2,22.9,19,16.5]},"src":{"synth":{"type":"pump","seed":3}},"demo":true,"ranges":[0,0,-0.1,0.1],"cycleSeg":null},{"id":"PUMP-L2-0310-14","eq":"PUMP-L2-0310","at":"2026-09-08 10:03","kind":"정기","device":"A","score":74,"grade":"caution","quality":"양호","feat":{"bands":[-26.4,-16.2,-24.1,-26.5,-25.4,-24.7,-25.1,-20.7,-5.8,-23.5,-22.7,-21.7,-20.6,-20.4,-20.2,-19.2,-18.8,-18.3,-18.2,-17.7,-17.3,-9,-16.4,-16.3,-16.4,-16.2,-16.1,-16.3,-16,-16,-16.3,-16.5,-16.6,-16.8,-16.9,-17.2,-17.2,-17.2,-16.9,-16.9],"levelDb":-24.5,"kurt":4.11,"hfRatio":0.2757,"b4mean":[23.2,22.9,19.6,17.7]},"src":{"synth":{"type":"pump","fault":"cavitation","sev":0.4,"seed":4}},"demo":true,"ranges":[-0.4,-0.2,-0.1,0.9],"cycleSeg":null},{"id":"PUMP-L2-0310-15","eq":"PUMP-L2-0310","at":"2026-09-22 09:40","kind":"정비 전","device":"A","score":48,"grade":"alert","quality":"양호","feat":{"bands":[-28,-16.8,-24.6,-26.5,-27.1,-25.1,-24.8,-20.3,-5.7,-23.4,-22.4,-21.7,-22.1,-20.8,-20.4,-20.1,-19.3,-18.7,-18.2,-17.8,-17.4,-9.4,-16.5,-16.4,-16.4,-16.2,-16.1,-16.1,-16.1,-16.1,-16.4,-16.2,-16.5,-16.6,-16.7,-16.6,-16.8,-16.5,-16.3,-16],"levelDb":-24.3,"kurt":5.09,"hfRatio":0.2988,"b4mean":[23.3,22.9,19.9,18.4]},"src":{"synth":{"type":"pump","fault":"cavitation","sev":0.5,"seed":5}},"demo":true,"ranges":[-0.6,-0.5,0,1.5],"cycleSeg":null},{"id":"PUMP-L2-0310-16","eq":"PUMP-L2-0310","at":"2026-09-23 16:30","kind":"정비 후","device":"A","score":100,"grade":"normal","quality":"양호","feat":{"bands":[-26.7,-15.8,-24.1,-26.1,-24.8,-24.2,-24.6,-20.1,-5.4,-22.8,-22.3,-21.4,-21,-20.5,-19.9,-19.6,-18.8,-17.9,-17.8,-17.2,-17,-9,-16.4,-15.9,-15.9,-16.3,-15.9,-16,-16,-16.2,-16.5,-16.5,-17,-17.3,-17.6,-17.8,-18.1,-18.3,-18.4,-18.2],"levelDb":-24.7,"kurt":3,"hfRatio":0.2368,"b4mean":[23.2,22.8,19.1,16.5]},"src":{"synth":{"type":"pump","seed":6}},"demo":true,"ranges":[0,0,0,0.1],"cycleSeg":null},{"id":"PUMP-L2-0310-17","eq":"PUMP-L2-0310","at":"2026-10-13 10:08","kind":"정기","device":"A","score":99,"grade":"normal","quality":"양호","feat":{"bands":[-26.3,-15.9,-24.4,-26.3,-25.6,-25,-24.7,-20.5,-5.6,-22.4,-22,-21.7,-20.7,-19.7,-19.2,-19.7,-18.7,-17.9,-17.9,-17.5,-16.8,-8.7,-16.4,-16.3,-16,-15.9,-15.9,-15.8,-16.1,-16,-16.4,-16.6,-17.1,-17.4,-17.7,-17.9,-18.2,-18.3,-18.3,-18.3],"levelDb":-24.8,"kurt":2.98,"hfRatio":0.2375,"b4mean":[23.1,22.9,19.2,16.5]},"src":{"synth":{"type":"pump","seed":7}},"demo":true,"ranges":[-0.2,0.1,0,0],"cycleSeg":null}],"devices":[{"id":"A","name":"점검용 휴대폰 A","curve":null,"note":"기준 기기"},{"id":"B","name":"점검자 휴대폰 B","curve":[-2.06,-2.25,-2.12,-2.02,-2.07,-2.05,-1.92,-2.14,-2.34,-2.52,-2.65,-2.91,-3.02,-2.96,-3.06,-3.19,-3,-2.71,-2.22,-1.4,-0.44,0.49,1.39,2.11,2.58,2.86,3.05,3.19,3.23,3.3,3.37,3.39,3.34,3.22,2.97,2.59,2.09,1.63,1.34,1.02],"note":"2026-08-24 시청역 E/S #2로 보정"}]};
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+const TYPES = {
+  escalator: { label: "에스컬레이터", prefix: "ES", synth: "escalator" },
+  elevator: { label: "엘리베이터 권상기", prefix: "EL", synth: "fan" },
+  fan: { label: "환기팬 · 송풍기", prefix: "FAN", synth: "fan" },
+  pump: { label: "배수펌프", prefix: "PUMP", synth: "pump" },
+  transformer: { label: "변압기 · 수배전", prefix: "TR", synth: "fan" },
+  hvac: { label: "냉난방 · 공조기", prefix: "HVAC", synth: "fan" },
+  other: { label: "기타 설비", prefix: "EQ", synth: "fan" },
+};
+const CAUTIONS = {
+  escalator: ["승강장 출입을 통제하고 운행 정지 후 주전원 차단 · 잠금 · 표지(LOTO)", "기계실 점검구를 열 때 추락 방지 덮개와 안전펜스 설치", "디딤판을 뗀 구간은 끼임 위험, 2인 1조 작업"],
+  elevator: ["녹음은 기계실 안 회전부(모터 · 감속기 · 도르래)에 손이 닿지 않는 거리에서", "정비할 때는 카 정지 후 주전원 차단 · 자물쇠 · 표지 부착(LOTO)", "도르래(시브)와 로프 사이 끼임 주의, 승강로 작업 시 추락 방지"],
+  fan: ["팬 정지 후 관성 회전이 완전히 멈춘 것을 확인", "전원 차단 · 잠금(LOTO)과 댐퍼 고정", "고소 작업 시 안전대, 소음 구역 귀마개 착용"],
+  pump: ["펌프 정지 · 전원 차단 · 잠금(LOTO), 자동 기동 회로 해제 확인", "집수정 · 피트 진입은 밀폐공간 절차(산소 · 유해가스 측정, 감시인 배치)", "젖은 바닥 미끄럼과 감전 주의"],
+  transformer: ["충전부 접근 한계거리 유지, 정전 · 검전 · 접지 후 작업", "절연 보호구 착용", "녹음은 외함 밖 안전거리에서만"],
+  hvac: ["운전 정지 후 전원 차단 · 잠금(LOTO)", "팬 · 벨트 회전부 끼임 주의", "냉매 배관 고온 · 저온 화상 주의"],
+  other: ["운전 정지와 전원 차단 · 잠금(LOTO) 후 작업", "회전부 보호커버 밖에서만 녹음"],
+};
+const DEMOS = {
+  // [고장, 정도, 이름, 기기, 잡음, 고정 시드]: 시드를 고정해 누를 때마다 같은 결과가 나온다
+  escalator: [["none", 1, "정상 운전", "A", null, 500], ["none", 1, "정상 운전 · 휴대폰 B로 녹음", "B", null, 503], ["none", 1, "열차 진입음이 섞인 녹음", "A", "train", 500], ["step", 0.22, "디딤판 부딪힘 소리 (초기)", "A", null, 505], ["step", 0.3, "디딤판 부딪힘 소리 (진행)", "A", null, 504], ["bearing", 0.3, "모터 베어링 손상", "A", null, 500], ["friction", 0.4, "기름 부족 마찰음", "A", null, 506]],
+  fan: [["none", 1, "정상 운전", "A", null, 507], ["none", 1, "정상 운전 · 휴대폰 B로 녹음", "B", null, 500], ["none", 1, "열차 진입음이 섞인 녹음", "A", "train", 500], ["imbalance", 0.4, "날개 불균형", "A", null, 503], ["bearing", 0.5, "베어링 손상", "A", null, 502], ["looseness", 0.3, "볼트 풀림", "A", null, 500]],
+  pump: [["none", 1, "정상 운전", "A", null, 502], ["none", 1, "정상 운전 · 휴대폰 B로 녹음", "B", null, 503], ["none", 1, "열차 진입음이 섞인 녹음", "A", "train", 500], ["cavitation", 0.5, "물거품 소리 (캐비테이션)", "A", null, 500], ["misalign", 0.3, "축 어긋남", "A", null, 500], ["bearing", 0.3, "베어링 손상", "A", null, 500]],
+};
+const GRADE = { normal: "정상", caution: "주의", alert: "점검 권고" };
+const REC = {
+  normal: "정기 점검 주기를 유지하세요.",
+  caution: "다음 점검을 앞당겨(2주 이내) 크게 달라진 소리와 관련된 부품을 확인하세요.",
+  alert: "1주 이내 정밀 점검(진동 측정 · 분해 점검)을 하고, 이상음이 커지면 운행 중지를 검토하세요.",
+};
+
+/* ---------- 저장소 ---------- */
+const KEY = "seolbi-cheongjingi.v3";
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const DEFAULT_QR = "https://claude.ai/artifact/5CzAUR4ZDguMvzQrXbHE6F";
+function ownUrl() {
+  const h = location.hostname || "";
+  if (/^https?:$/.test(location.protocol) && h && !/claude|anthropic|localhost|127\.0\.0\.1/.test(h)) return location.origin + location.pathname;
+  return null;
+}
+let DB;
+function loadDB() {
+  try { const s = localStorage.getItem(KEY); if (s) { DB = JSON.parse(s); return; } } catch {}
+  DB = clone(SEED); DB.settings = { qrBase: ownUrl() || DEFAULT_QR };
+}
+function saveDB() { try { localStorage.setItem(KEY, JSON.stringify(DB)); return true; } catch { return false; } }
+loadDB();
+if (!DB.settings) DB.settings = { qrBase: ownUrl() || DEFAULT_QR };
+
+const memAudio = new Map();
+let idbP = null;
+function idb() {
+  if (!idbP) idbP = new Promise((ok) => {
+    try { const r = indexedDB.open("seolbi-audio", 1); r.onupgradeneeded = () => r.result.createObjectStore("a"); r.onsuccess = () => ok(r.result); r.onerror = () => ok(null); } catch { ok(null); }
+  });
+  return idbP;
+}
+async function putAudio(id, x) {
+  const q = new Int16Array(x.length); for (let i = 0; i < x.length; i++) q[i] = clamp(x[i], -1, 1) * 32767;
+  memAudio.set(id, x);
+  const d = await idb(); if (!d) return;
+  try { d.transaction("a", "readwrite").objectStore("a").put(q.buffer, id); } catch {}
+}
+async function getAudio(m) {
+  if (m.src && m.src.synth) {
+    const k = "s:" + JSON.stringify(m.src.synth);
+    if (!memAudio.has(k)) memAudio.set(k, Engine.synth(m.src.synth));
+    return memAudio.get(k);
+  }
+  if (memAudio.has(m.id)) return memAudio.get(m.id);
+  const d = await idb(); if (!d) return null;
+  return new Promise((ok) => {
+    try {
+      const r = d.transaction("a").objectStore("a").get(m.id);
+      r.onsuccess = () => { if (!r.result) return ok(null); const q = new Int16Array(r.result), x = new Float32Array(q.length); for (let i = 0; i < q.length; i++) x[i] = q[i] / 32767; memAudio.set(m.id, x); ok(x); };
+      r.onerror = () => ok(null);
+    } catch { ok(null); }
+  });
+}
+
+/* ---------- 도우미 ---------- */
+const eqById = (id) => DB.equipment.find((e) => e.id === id);
+const mById = (id) => DB.measurements.find((m) => m.id === id);
+const devById = (id) => DB.devices.find((d) => d.id === id);
+const histOf = (id) => DB.measurements.filter((m) => m.eq === id && m.kind !== "기준음 등록").sort((a, b) => a.at.localeCompare(b.at));
+const gradeOf = (s, T) => (s >= T + 10 ? "normal" : s >= T ? "caution" : "alert");
+function fmtNow(d = new Date()) { const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+function css(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function gcol(g) { return css(g === "normal" ? "--ok" : g === "caution" ? "--caution" : "--danger"); }
+function pack(f, keepCycle) {
+  const r1 = (a) => a.map((v) => +v.toFixed(1));
+  const o = { bands: r1(f.bands), levelDb: +f.levelDb.toFixed(1), kurt: +f.kurt.toFixed(2), hfRatio: f.hfRatio, b4mean: r1(f.b4mean) };
+  if (keepCycle && f.cycle) o.cycle = { period: +f.cycle.period.toFixed(3), strength: +f.cycle.strength.toFixed(2), prof: { tot: r1(f.cycle.prof.tot), b4: f.cycle.prof.b4.map(r1) } };
+  return o;
+}
+function devCurveFor(curDev, baseDev) {
+  const c = devById(curDev), b = devById(baseDev);
+  if (curDev === baseDev) return { opt: {}, note: null };
+  const cc = c && c.curve, bc = b && b.curve;
+  if ((cc || curDev === "A") && (bc || baseDev === "A")) {
+    const curve = Engine.BAND_F.map((_, i) => (cc ? cc[i] : 0) - (bc ? bc[i] : 0));
+    return { opt: { devCurve: curve }, note: `기준음(${b ? b.name : baseDev})과 다른 기기로 측정해 ${c ? c.name : curDev}의 보정 곡선을 적용했습니다.` };
+  }
+  return { opt: { deviceCorr: true }, note: `${c ? c.name : curDev}은 보정 곡선이 없어 마이크 기울기만 근사 보정했습니다. 기기 보정을 등록하면 더 정확합니다.` };
+}
+function mgmt(eqId, score, grade) {
+  const h = histOf(eqId), prev = h.slice(-3).map((m) => m.score);
+  const avg = prev.length ? prev.reduce((a, b) => a + b, 0) / prev.length : score;
+  const trend = score - avg;
+  const recent = [...h.slice(-4).map((m) => m.grade), grade];
+  const rep = recent.filter((g) => g !== "normal").length;
+  const v = Math.round(clamp((100 - score) * 0.8 + Math.max(0, -trend) * 1.2 + rep * 7, 0, 100));
+  const lvl = v < 25 ? ["낮음", "normal"] : v < 50 ? ["보통", "caution"] : v < 75 ? ["높음", "alert"] : ["매우 높음", "alert"];
+  const why = [`현재 유사도 ${score}점`];
+  if (prev.length) why.push(trend < -2 ? `직전 ${prev.length}회 평균 ${avg.toFixed(0)}점에서 ${(-trend).toFixed(0)}점 하락` : trend > 2 ? `직전 ${prev.length}회 평균보다 ${trend.toFixed(0)}점 상승` : `직전 ${prev.length}회 평균과 비슷`);
+  why.push(`최근 ${recent.length}회 중 주의 이상 ${rep}회`);
+  return { v, lvl, why, trend, avg, prevN: prev.length, rep, recentN: recent.length };
+}
+
+/* ---------- 상태 ---------- */
+let curEq = DB.equipment[0].id, kind = "정기", qrOpened = false;
+let cur = null; // {x, feat, cmp, q, name, meta, device, src, at}
+
+function fillEqSelects() {
+  for (const s of [$("eqSel"), $("eqSel2")]) {
+    s.innerHTML = "";
+    for (const e of DB.equipment) s.add(new Option(`${e.name} · ${e.station}`, e.id));
+    s.value = curEq;
+  }
+}
+function fillDevSel() {
+  const v = $("devSel").value || "A";
+  $("devSel").innerHTML = "";
+  for (const d of DB.devices) $("devSel").add(new Option(d.name + (d.curve ? " (보정됨)" : d.id === "A" ? " (기준 기기)" : " (보정 전)"), d.id));
+  $("devSel").value = devById(v) ? v : "A";
+}
+function fillDemo() {
+  const e = eqById(curEq), list = DEMOS[e.type];
+  $("demoSel").innerHTML = "";
+  if (list) list.forEach((d, i) => $("demoSel").add(new Option(d[2], i)));
+  else $("demoSel").add(new Option("예시 없음 · 실제 녹음 사용", ""));
+  $("demoSel").disabled = $("demoBtn").disabled = !list;
+  $("recDur").value = e.type === "elevator" ? "15" : "6";
+}
+
+/* ---------- 작업 전 안내 ---------- */
+function renderBrief() {
+  const e = eqById(curEq), h = histOf(curEq), last = h[h.length - 1], base = mById(e.baselineId);
+  $("qrflag").hidden = !qrOpened;
+  $("bWhere").textContent = `${e.station} · ${e.place} · ${e.id}`;
+  $("bName").textContent = e.name;
+  $("brief").className = "card brief " + (last ? "g-" + last.grade : "");
+  const chips = $("bChips"); chips.innerHTML = "";
+  const chip = (html) => { const c = el("span", "chip"); c.innerHTML = html; chips.append(c); };
+  chip(`설비 종류 <b>${TYPES[e.type].label}</b>`);
+  chip(base ? `정상음 <b>${base.at.slice(0, 10)}</b> 등록` : "정상음 <b>미등록</b>");
+  chip(`기준점수 <b>${e.threshold}</b>점`);
+  if (last) {
+    const m = mgmt(curEq, last.score, last.grade);
+    chip(`최근 <b>${last.at.slice(5, 10)}</b> ${last.score}점 · ${GRADE[last.grade]}`);
+    chip(`위험도 <b>${m.v}</b> ${m.lvl[0]}`);
+    const sc = h.slice(-4).map((x) => x.score);
+    chip(`최근 추이 <b>${sc.join(" → ")}</b>`);
+  }
+  const ul = $("bCautions"); ul.innerHTML = "";
+  const cs = [...(CAUTIONS[e.type] || CAUTIONS.other)];
+  if (last && last.grade !== "normal") cs.unshift(`최근 ${GRADE[last.grade]} 판정(${last.at.slice(5, 10)}, ${last.score}점)${last.cycleSeg ? `: 동작 주기 ${Math.round(last.cycleSeg[0] * 100)}~${Math.round(last.cycleSeg[1] * 100)}% 구간 이상음` : ""}. 해당 부위를 먼저 확인하세요.`);
+  for (const c of cs) ul.append(el("li", null, c));
+  const g = $("bGuide"); g.innerHTML = "";
+  for (const [k, v] of [["측정 위치", e.guide.pos], ["거리", e.guide.dist], ["가동 상태", e.guide.state]]) { const d = el("div"); d.append(el("span", null, k), el("b", null, v)); g.append(d); }
+}
+
+/* ---------- 분석 ---------- */
+function analyze() {
+  if (!cur) return;
+  const e = eqById(curEq), base = mById(e.baselineId);
+  cur.feat = cur.feat || Engine.features(cur.x);
+  cur.q = Engine.quality(cur.feat, base && base.feat, { varying: e.type === "elevator" });
+  if (base) {
+    const dc = devCurveFor(cur.device, base.device);
+    cur.cmp = Engine.compare(cur.feat, base.feat, dc.opt);
+    cur.devNote = dc.note;
+    cur.grade = gradeOf(cur.cmp.score, e.threshold);
+  } else { cur.cmp = null; cur.grade = null; }
+  cur.eq = curEq;
+  renderResult();
+}
+
+function explainLines() {
+  const e = eqById(curEq), c = cur.cmp, base = mById(e.baselineId), L = [];
+  if (!c) return L;
+  const rs = c.ranges.filter((r) => Math.abs(r.diff) >= 1.5).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+  for (const r of rs.slice(0, 2)) {
+    const hz = `${r.lo >= 1000 ? r.lo / 1000 + "k" : r.lo}~${r.hi >= 1000 ? r.hi / 1000 + "k" : r.hi} Hz`;
+    L.push(r.diff > 0 ? `${r.name}(${hz})가 정상음보다 ${r.diff.toFixed(1)} dB 커졌습니다. ${r.hint} 가능성이 있습니다.` : `${r.name}(${hz})가 정상음보다 ${(-r.diff).toFixed(1)} dB 작아졌습니다. 다른 소리가 커지면서 상대적으로 줄었을 수 있습니다.`);
+  }
+  if (c.dK > 0.3) L.push(`'딱딱' 하는 짧은 부딪힘 소리가 늘었습니다(충격음 정도 ${base.feat.kurt.toFixed(1)} → ${cur.feat.kurt.toFixed(1)}, 정상은 3 안팎).`);
+  if (c.cycle && c.cycle.seg) {
+    const s = c.cycle.seg, P = c.cycle.period;
+    L.push(`${P.toFixed(2)}초마다 반복되는 동작 중 ${Math.round(s.from * 100)}~${Math.round(s.to * 100)}% 시점에서 소리가 ${s.peakDb.toFixed(1)} dB 커졌습니다. 매번 같은 시점에 나는 소리라 디딤판 · 롤러 같은 한 부위의 손상을 의심합니다.`);
+  } else if (c.cycle && c.cycle.mismatch) L.push(`반복 주기가 정상음(${c.cycle.basePeriod.toFixed(2)}초)과 다르게 측정됐습니다(${c.cycle.period.toFixed(2)}초). 운전 속도나 측정 조건을 확인하세요.`);
+  if (!L.length) L.push("정상음과 비교해 뚜렷하게 달라진 소리나 부딪힘 소리가 없습니다.");
+  const h = histOf(curEq).slice(-3);
+  if (h.length) { const avg = h.reduce((a, m) => a + m.score, 0) / h.length; const d = c.score - avg; if (Math.abs(d) >= 5) L.push(`직전 ${h.length}회 평균 ${avg.toFixed(0)}점보다 ${Math.abs(d).toFixed(0)}점 ${d < 0 ? "낮습니다" : "높습니다"}.`); }
+  if (cur.devNote) L.push(cur.devNote);
+  return L;
+}
+
+function renderResult() {
+  const e = eqById(curEq), c = cur.cmp, T = e.threshold;
+  $("result").hidden = false;
+  $("rWhen").textContent = `${cur.at} · ${kind} · ${devById(cur.device) ? devById(cur.device).name : cur.device}`;
+  // 품질
+  const qb = $("qBanner"); qb.innerHTML = "";
+  const fails = cur.q.issues.filter((i) => i.lvl === "fail"), warns = cur.q.issues.filter((i) => i.lvl === "warn");
+  if (fails.length) { const b = el("div", "banner fail"); b.append(el("b", null, "재측정 요청 — 아래 점수는 참고용입니다")); for (const i of fails) b.append(el("span", null, i.msg)); qb.append(b); }
+  if (warns.length) { const b = el("div", "banner warn"); b.append(el("b", null, "측정 조건 확인")); for (const i of warns) b.append(el("span", null, i.msg)); qb.append(b); }
+
+  if (!c) {
+    $("sMain").className = "sbox main"; $("sNum").textContent = "-"; $("sPill").textContent = "정상음 미등록"; $("sPill").className = "pill";
+    $("sThr").textContent = "이 설비는 정상음이 없습니다. 정상 상태에서 녹음한 뒤 '정상음으로 등록'을 누르면 다음부터 유사도를 계산합니다.";
+    $("mVal").textContent = "-"; $("mPill").textContent = ""; $("mWhy").innerHTML = "";
+    $("explain").innerHTML = ""; $("recLine").textContent = "정상음을 먼저 등록하세요.";
+    $("cycWrap").hidden = true; $("segTxt").textContent = "";
+    drawBand(); drawSpec(); drawSg(); renderKV(); updateActions(); resetAi();
+    return;
+  }
+  const g = cur.grade;
+  $("sMain").className = "sbox main g-" + g + (fails.length ? " provisional" : "");
+  $("sNum").innerHTML = `${c.score}<small>/ 100</small>`;
+  $("sPill").textContent = GRADE[g]; $("sPill").className = "pill g-" + g;
+  const z = (id, a, b, col) => { const s = $(id).style; s.left = a + "%"; s.width = b - a + "%"; s.background = col; s.opacity = 0.35; };
+  z("zA", 0, T, css("--danger")); z("zC", T, Math.min(100, T + 10), css("--caution")); z("zN", Math.min(100, T + 10), 100, css("--ok"));
+  $("zA").style.borderRadius = "5px 0 0 5px"; $("zN").style.borderRadius = "0 5px 5px 0";
+  $("sMark").style.left = clamp(c.score, 0.5, 99.5) + "%";
+  $("sScale").innerHTML = "";
+  for (const [v, t] of [[0, "0"], [T, String(T)], [Math.min(100, T + 10), String(T + 10)], [100, "100"]]) { const s = el("span", null, t); s.style.left = clamp(v, 3, 97) + "%"; $("sScale").append(s); }
+  $("sThr").textContent = `기준점수 ${T}점 미만 점검 권고, ${T}~${T + 9}점 주의, ${T + 10}점 이상 정상 (설비 · QR 탭에서 설비별로 조정)`;
+  const m = mgmt(curEq, c.score, g);
+  $("mVal").textContent = m.v; $("mPill").textContent = m.lvl[0]; $("mPill").className = "pill g-" + m.lvl[1];
+  $("mWhy").innerHTML = ""; for (const w of m.why) $("mWhy").append(el("li", null, w));
+  drawMini();
+  $("explain").innerHTML = ""; for (const l of explainLines()) $("explain").append(el("li", null, l));
+  $("recLine").textContent = "권고: " + (fails.length ? "측정 조건을 맞춰 다시 녹음하세요. " : "") + REC[g];
+
+  // 이상 구간
+  const seg = segments();
+  $("segTxt").textContent = seg ? seg.label : "";
+  $("cycWrap").hidden = !(c.cycle && !c.cycle.mismatch);
+  $("cycTxt").textContent = c.cycle && !c.cycle.mismatch ? `반복 주기 ${c.cycle.period.toFixed(2)}초 · ${c.cycle.seg ? `이상 시점 ${Math.round(c.cycle.seg.from * 100)}~${Math.round(c.cycle.seg.to * 100)}%` : "이상 시점 없음"}` : "";
+  drawBand(); drawCycle(); drawSpec(); drawSg(); renderKV(); updateActions(); resetAi();
+}
+
+function segments() {
+  const c = cur.cmp; if (!c) return null;
+  const pad = 0.3, dur = cur.x.length / Engine.SR;
+  if (c.cycle && c.cycle.seg) {
+    const s = c.cycle.seg, P = c.cycle.period, Pb = c.cycle.basePeriod;
+    const k = (1 + s.curFrom + s.width) * P + pad < dur ? 1 : 0;
+    const t0 = Math.max(0, (k + s.curFrom) * P - pad), t1 = Math.min(dur, (k + s.curFrom + s.width) * P + pad);
+    const b0 = Math.max(0, (k + s.baseFrom) * Pb - pad);
+    return { cur: [t0, t1], base: [b0, b0 + (t1 - t0)], label: `주기 ${Math.round(s.from * 100)}~${Math.round(s.to * 100)}% 구간 (${t0.toFixed(1)}~${t1.toFixed(1)}초)` };
+  }
+  const w = c.window;
+  return { cur: [w.t0, w.t1], base: [w.t0, w.t1], label: w.dev > 2 ? `가장 많이 달라진 0.5초 (${w.t0.toFixed(1)}~${w.t1.toFixed(1)}초, +${w.dev.toFixed(1)} dB)` : `뚜렷한 이상 구간 없음 · ${w.t0.toFixed(1)}~${w.t1.toFixed(1)}초 비교` };
+}
+
+function renderKV() {
+  const kv = $("kv"); kv.innerHTML = "";
+  const f = cur.feat, c = cur.cmp, base = mById(eqById(curEq).baselineId);
+  const items = [
+    ["소리 크기", `${f.levelDb.toFixed(1)} dB`], ["충격음 정도 (정상 3 안팎)", `${f.kurt.toFixed(1)}${base ? " / 정상음 " + base.feat.kurt.toFixed(1) : ""}`],
+    ["높은 소리 비율 (2 kHz 이상)", `${(f.hfRatio * 100).toFixed(0)}%`], ["반복 주기", f.cycle ? `${f.cycle.period.toFixed(2)}초` : "없음(계속 같은 소리)"],
+    ["소리 분포 차이", c ? `${c.dBand.toFixed(1)} dB` : "-"], ["부딪힘 소리 증가", c ? c.dK.toFixed(1) : "-"], ["반복 시점 이상", c ? c.dCyc.toFixed(1) : "-"], ["녹음 길이", `${f.duration.toFixed(1)}초`],
+  ];
+  for (const [k, v] of items) { const d = el("div"); d.append(el("span", null, k), el("b", "mono", v)); kv.append(d); }
+}
+
+/* ---------- 그리기 ---------- */
+function prep(cv) {
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  g.font = "10px " + css("--font-mono"); g.lineWidth = 1;
+  return { g, w, h };
+}
+function drawWave() {
+  if (!cur) return;
+  const cv = $("cvWave"); if (!cv.clientWidth) return;
+  const { g, w, h } = prep(cv), x = cur.x;
+  let pk = 1e-9; for (let i = 0; i < x.length; i++) pk = Math.max(pk, Math.abs(x[i]));
+  g.strokeStyle = css("--scope-grid"); g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
+  g.fillStyle = css("--trace");
+  const per = x.length / w;
+  for (let px = 0; px < w; px++) {
+    let mn = 0, mx = 0;
+    for (let i = Math.floor(px * per); i < Math.floor((px + 1) * per); i++) { if (x[i] < mn) mn = x[i]; if (x[i] > mx) mx = x[i]; }
+    const y1 = h / 2 - (mx / pk) * (h / 2 - 2), y2 = h / 2 - (mn / pk) * (h / 2 - 2);
+    g.fillRect(px, y1, 1, Math.max(1, y2 - y1));
+  }
+}
+function logAxis(g, X, padT, H, h, fMin, fMax) {
+  g.fillStyle = css("--scope-text"); g.strokeStyle = css("--scope-grid"); g.textAlign = "center";
+  for (const f of [50, 100, 200, 500, 1000, 2000, 5000, 10000]) {
+    if (f < fMin || f > fMax) continue;
+    g.beginPath(); g.moveTo(X(f), padT); g.lineTo(X(f), padT + H); g.stroke();
+    g.fillText(f >= 1000 ? f / 1000 + "k" : String(f), X(f), h - 5);
+  }
+}
+function drawBand() {
+  if (!cur) return;
+  const cv = $("cvBand"); if (!cv.clientWidth) return;
+  const { g, w, h } = prep(cv), F = Engine.BAND_F, base = mById(eqById(curEq).baselineId), c = cur.cmp;
+  const padL = 34, padR = 8, padT = 10, padB = 18, W = w - padL - padR;
+  const topH = (h - padT - padB) * 0.62, botT = padT + topH + 10, botH = h - padB - botT;
+  const fMin = 45, fMax = 10000, X = (f) => padL + (Math.log(f / fMin) / Math.log(fMax / fMin)) * W;
+  logAxis(g, X, padT, h - padT - padB, h, fMin, fMax);
+  const all = [...cur.feat.bands, ...(base ? base.feat.bands : [])], top = Math.ceil(Math.max(...all) / 10) * 10, bot = top - 50;
+  const Y = (v) => padT + (1 - clamp((v - bot) / (top - bot), 0, 1)) * topH;
+  g.fillStyle = css("--scope-text"); g.textAlign = "right";
+  for (let v = bot + 10; v <= top; v += 10) { g.strokeStyle = css("--scope-grid"); g.beginPath(); g.moveTo(padL, Y(v)); g.lineTo(padL + W, Y(v)); g.stroke(); g.fillText(String(v), padL - 4, Y(v) + 3); }
+  const line = (arr, col, width, dash) => { g.strokeStyle = col; g.lineWidth = width; g.setLineDash(dash || []); g.beginPath(); arr.forEach((v, i) => (i ? g.lineTo(X(F[i]), Y(v)) : g.moveTo(X(F[i]), Y(v)))); g.stroke(); g.setLineDash([]); g.lineWidth = 1; };
+  if (base) line(base.feat.bands, css("--scope-text"), 1.5, [4, 3]);
+  line(cur.feat.bands, css("--trace"), 2);
+  // 변화량 막대
+  const mid = botT + botH / 2, sc = botH / 2 / 10;
+  g.strokeStyle = css("--scope-grid"); g.beginPath(); g.moveTo(padL, mid); g.lineTo(padL + W, mid); g.stroke();
+  g.fillStyle = css("--scope-text"); g.textAlign = "right"; g.fillText("+10", padL - 4, botT + 6); g.fillText("-10", padL - 4, botT + botH);
+  if (c) {
+    const bw = Math.max(2, (W / F.length) * 0.6);
+    c.corr.forEach((d, i) => {
+      const v = clamp(d, -10, 10);
+      g.fillStyle = d > 3 ? css("--trace2") : css("--scope-text");
+      g.globalAlpha = d > 3 ? 1 : 0.5;
+      g.fillRect(X(F[i]) - bw / 2, v > 0 ? mid - v * sc : mid, bw, Math.abs(v) * sc);
+    });
+    g.globalAlpha = 1;
+  }
+  g.textAlign = "left"; g.fillStyle = css("--scope-text"); g.fillText("dB", 2, padT + 8); g.fillText("변화", 2, botT + botH / 2 + 3);
+}
+function drawCycle() {
+  const c = cur && cur.cmp; if (!c || !c.cycle || c.cycle.mismatch) return;
+  const cv = $("cvCycle"); if (!cv.clientWidth) return;
+  const { g, w, h } = prep(cv), cy = c.cycle, n = cy.curProf.length;
+  const padL = 34, padR = 8, padT = 10, padB = 18, W = w - padL - padR, H = h - padT - padB;
+  const all = [...cy.curProf, ...cy.baseProf], top = Math.max(...all) + 2, bot = Math.min(...all) - 2;
+  const X = (p) => padL + p * W, Y = (v) => padT + (1 - (v - bot) / (top - bot)) * H;
+  if (cy.seg) {
+    g.fillStyle = css("--trace2"); g.globalAlpha = 0.18;
+    const a = cy.seg.from, b = cy.seg.to;
+    if (b > a) g.fillRect(X(a), padT, X(b) - X(a), H); else { g.fillRect(X(a), padT, X(1) - X(a), H); g.fillRect(X(0), padT, X(b) - X(0), H); }
+    g.globalAlpha = 1;
+  }
+  g.strokeStyle = css("--scope-grid"); g.fillStyle = css("--scope-text"); g.textAlign = "center";
+  for (let p = 0; p <= 1.001; p += 0.25) { g.beginPath(); g.moveTo(X(p), padT); g.lineTo(X(p), padT + H); g.stroke(); g.fillText(Math.round(p * 100) + "%", clamp(X(p), padL + 10, padL + W - 12), h - 5); }
+  const line = (arr, col, width, dash) => { g.strokeStyle = col; g.lineWidth = width; g.setLineDash(dash || []); g.beginPath(); arr.forEach((v, i) => { const x = X((i + 0.5) / n); i ? g.lineTo(x, Y(v)) : g.moveTo(x, Y(v)); }); g.stroke(); g.setLineDash([]); g.lineWidth = 1; };
+  line(cy.baseProf, css("--scope-text"), 1.5, [4, 3]);
+  line(cy.curProf, css("--trace"), 2);
+  g.textAlign = "left"; g.fillStyle = css("--scope-text"); g.fillText("음량", 2, padT + 8);
+}
+function drawSpec() {
+  if (!cur) return;
+  const cv = $("cvSpec"); if (!cv.clientWidth) return;
+  const { g, w, h } = prep(cv), P = cur.feat._P, df = Engine.SR / 8192;
+  const padL = 34, padT = 8, padB = 18, W = w - padL - 8, H = h - padT - padB, fMin = 20, fMax = 10000;
+  const X = (f) => padL + (Math.log(f / fMin) / Math.log(fMax / fMin)) * W;
+  logAxis(g, X, padT, H, h, fMin, fMax);
+  const series = (PP) => { const pts = []; let top = -1e9; for (let px = 0; px <= W; px += 1) { const f1 = fMin * Math.pow(fMax / fMin, px / W), f2 = fMin * Math.pow(fMax / fMin, (px + 1) / W); let m = -1e9; for (let k = Math.max(1, Math.floor(f1 / df)); k <= Math.max(Math.floor(f1 / df), Math.floor(f2 / df)) && k < PP.length; k++) m = Math.max(m, 10 * Math.log10(PP[k] + 1e-20)); pts.push([padL + px, m]); top = Math.max(top, m); } return { pts, top }; };
+  const sc = series(P); const top = sc.top, Y = (v) => padT + (1 - clamp((v - (top - 70)) / 70, 0, 1)) * H;
+  const draw = (pts, col, wd, dash) => { g.strokeStyle = col; g.lineWidth = wd; g.setLineDash(dash || []); g.beginPath(); pts.forEach(([x, v], i) => (i ? g.lineTo(x, Y(v)) : g.moveTo(x, Y(v)))); g.stroke(); g.setLineDash([]); g.lineWidth = 1; };
+  if (cur.baseP) { const sb = series(cur.baseP); const off = top - sb.top; draw(sb.pts.map(([x, v]) => [x, v + off]), css("--scope-text"), 1, [3, 3]); }
+  draw(sc.pts, css("--trace"), 1.3);
+}
+function drawSg() {
+  if (!cur) return;
+  const cv = $("cvSg"); if (!cv.clientWidth) return;
+  const { g, w, h } = prep(cv), F = cur.feat._frames.cols; if (!F.length) return;
+  const nb = F[0].length; let top = -1e9; for (const c of F) for (let k = 2; k < nb; k++) if (c[k] > top) top = c[k];
+  const off = document.createElement("canvas"); off.width = F.length; off.height = nb;
+  const og = off.getContext("2d"), img = og.createImageData(F.length, nb);
+  const stops = [[7, 16, 21], [16, 66, 92], [41, 140, 150], [95, 208, 195], [240, 200, 90], [255, 245, 220]];
+  for (let t = 0; t < F.length; t++) for (let k = 0; k < nb; k++) {
+    const v = clamp((F[t][k] - (top - 75)) / 75, 0, 1) * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(v)), fr = v - i, a = stops[i], b = stops[i + 1], p = ((nb - 1 - k) * F.length + t) * 4;
+    img.data[p] = a[0] + (b[0] - a[0]) * fr; img.data[p + 1] = a[1] + (b[1] - a[1]) * fr; img.data[p + 2] = a[2] + (b[2] - a[2]) * fr; img.data[p + 3] = 255;
+  }
+  og.putImageData(img, 0, 0); g.drawImage(off, 0, 0, w, h);
+}
+function drawTrend() {
+  const cv = $("cvTrend"); if (!cv.clientWidth) return;
+  const { g, w, h } = prep(cv), e = eqById(curEq), T = e.threshold, base = mById(e.baselineId);
+  const hs = histOf(curEq), pts = [...(base ? [base] : []), ...hs];
+  $("trendName").textContent = e.name;
+  const padL = 30, padR = 14, padT = 16, padB = 22, W = w - padL - padR, H = h - padT - padB;
+  const ts = pts.map((m) => new Date(m.at.replace(" ", "T")).getTime());
+  const t0 = Math.min(...ts), t1 = Math.max(...ts, t0 + 86400000);
+  const X = (t) => padL + ((t - t0) / (t1 - t0)) * W, Y = (v) => padT + (1 - v / 100) * H;
+  g.fillStyle = css("--danger"); g.globalAlpha = 0.12; g.fillRect(padL, Y(T), W, Y(0) - Y(T)); g.fillStyle = css("--caution"); g.fillRect(padL, Y(Math.min(100, T + 10)), W, Y(T) - Y(Math.min(100, T + 10))); g.globalAlpha = 1;
+  g.strokeStyle = css("--scope-grid"); g.fillStyle = css("--scope-text"); g.textAlign = "right";
+  for (const v of [0, 25, 50, 75, 100]) { g.beginPath(); g.moveTo(padL, Y(v)); g.lineTo(padL + W, Y(v)); g.stroke(); g.fillText(String(v), padL - 4, Y(v) + 3); }
+  g.strokeStyle = css("--danger"); g.setLineDash([5, 4]); g.beginPath(); g.moveTo(padL, Y(T)); g.lineTo(padL + W, Y(T)); g.stroke(); g.setLineDash([]);
+  g.textAlign = "center"; g.fillStyle = css("--scope-text");
+  const months = new Set();
+  pts.forEach((m, i) => { const mo = m.at.slice(0, 7); if (!months.has(mo)) { months.add(mo); g.fillText(Number(m.at.slice(5, 7)) + "월", clamp(X(ts[i]), padL + 10, padL + W - 10), h - 6); } });
+  g.strokeStyle = css("--trace"); g.lineWidth = 1.6; g.beginPath(); pts.forEach((m, i) => (i ? g.lineTo(X(ts[i]), Y(m.score)) : g.moveTo(X(ts[i]), Y(m.score)))); g.stroke(); g.lineWidth = 1;
+  pts.forEach((m, i) => {
+    const x = X(ts[i]), y = Y(m.score);
+    g.fillStyle = m.kind === "기준음 등록" ? css("--scope-text") : gcol(m.grade);
+    g.beginPath(); if (m.kind === "기준음 등록") { g.moveTo(x, y - 6); g.lineTo(x + 6, y); g.lineTo(x, y + 6); g.lineTo(x - 6, y); } else g.arc(x, y, i === pts.length - 1 ? 5.5 : 4, 0, Math.PI * 2); g.fill();
+    if (m.kind === "정비 전" || m.kind === "정비 후" || m.kind === "기준음 등록" || i === pts.length - 1) {
+      g.fillStyle = css("--scope-text"); g.textAlign = "center";
+      const lab = m.kind === "기준음 등록" ? "기준음" : m.kind === "정기" ? m.score + "점" : m.kind;
+      g.fillText(lab, clamp(x, padL + 16, padL + W - 16), y > padT + 20 ? y - 9 : y + 16);
+    }
+  });
+}
+// 판정 화면의 작은 추이 그래프: 저장된 최근 7회 + 지금 측정
+function drawMini() {
+  const cv = $("cvMini"); if (!cv.clientWidth || !cur || !cur.cmp) return;
+  const { g, w, h } = prep(cv), e = eqById(curEq), T = e.threshold;
+  const pts = [...histOf(curEq).filter((m) => m.at !== cur.at || !cur.saved).slice(-7).map((m) => ({ s: m.score, g: m.grade, lab: m.at.slice(5, 10) })), { s: cur.cmp.score, g: cur.grade, lab: "지금", now: true }];
+  const pad = 14, W = w - pad * 2, H = h - 22, X = (i) => pad + (pts.length === 1 ? W / 2 : (i / (pts.length - 1)) * W), Y = (v) => 6 + (1 - v / 100) * H;
+  g.fillStyle = css("--danger"); g.globalAlpha = 0.1; g.fillRect(pad, Y(T), W, Y(0) - Y(T)); g.globalAlpha = 1;
+  g.strokeStyle = css("--danger"); g.setLineDash([4, 3]); g.beginPath(); g.moveTo(pad, Y(T)); g.lineTo(pad + W, Y(T)); g.stroke(); g.setLineDash([]);
+  g.strokeStyle = css("--accent"); g.lineWidth = 1.5; g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(X(i), Y(p.s)) : g.moveTo(X(i), Y(p.s)))); g.stroke(); g.lineWidth = 1;
+  g.textAlign = "center"; g.font = "10px " + css("--font-mono");
+  pts.forEach((p, i) => {
+    g.fillStyle = gcol(p.g); g.beginPath(); g.arc(X(i), Y(p.s), p.now ? 5 : 3.5, 0, Math.PI * 2); g.fill();
+    if (p.now || i === 0) { g.fillStyle = css("--muted"); g.fillText(`${p.lab} ${p.s}`, Math.min(Math.max(X(i), 30), w - 30), h - 3); }
+  });
+}
+function redraw() { drawWave(); if (cur && cur.feat) { drawBand(); drawCycle(); drawSpec(); drawSg(); drawMini(); } drawTrend(); drawReport(); }
+let rz; new ResizeObserver(() => { clearTimeout(rz); rz = setTimeout(redraw, 80); }).observe(document.body);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redraw);
+new MutationObserver(redraw).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+/* ---------- 재생 ---------- */
+let actx = null, playing = [];
+function stopAll() { for (const s of playing) { try { s.stop(); } catch {} } playing = []; $("playStat").textContent = ""; $("playStat2").textContent = ""; $("playCur").textContent = "▶ 듣기"; }
+function playSeq(parts, statEl) {
+  stopAll();
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = actx || new AC(); if (actx.state === "suspended") actx.resume();
+  let pk = 1e-9; for (const p of parts) for (let i = Math.floor(p.t0 * Engine.SR); i < Math.floor(p.t1 * Engine.SR) && i < p.x.length; i++) pk = Math.max(pk, Math.abs(p.x[i]));
+  const gain = Math.min(4, 0.6 / pk);
+  let t = actx.currentTime + 0.05;
+  parts.forEach((p, idx) => {
+    const a = Math.floor(p.t0 * Engine.SR), b = Math.min(p.x.length, Math.floor(p.t1 * Engine.SR)), n = Math.max(1, b - a);
+    const buf = actx.createBuffer(1, n, Engine.SR), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) { const fade = Math.min(1, i / 300, (n - i) / 300); d[i] = p.x[a + i] * gain * fade; }
+    const s = actx.createBufferSource(); s.buffer = buf; s.connect(actx.destination); s.start(t);
+    const delay = (t - actx.currentTime) * 1000;
+    setTimeout(() => { if (playing.includes(s)) statEl.textContent = `▶ ${p.label} (${p.t0.toFixed(1)}~${p.t1.toFixed(1)}초)`; }, Math.max(0, delay));
+    s.onended = () => { if (idx === parts.length - 1 && playing.includes(s)) stopAll(); };
+    playing.push(s); t += n / Engine.SR + 0.4;
+  });
+}
+async function baseAudio() { const b = mById(eqById(curEq).baselineId); return b ? getAudio(b) : null; }
+$("playCur").addEventListener("click", () => { if (!cur) return; if (playing.length) return stopAll(); playSeq([{ x: cur.x, t0: 0, t1: cur.x.length / Engine.SR, label: "현재 녹음" }], $("playStat")); $("playCur").textContent = "■ 정지"; });
+$("pNow").addEventListener("click", () => { const s = segments(); if (s) playSeq([{ x: cur.x, t0: s.cur[0], t1: s.cur[1], label: "현재 소리" }], $("playStat")); });
+$("pBase").addEventListener("click", async () => { const s = segments(), bx = await baseAudio(); if (!bx) { $("playStat").textContent = "기준음 녹음 파일이 이 기기에 없습니다."; return; } playSeq([{ x: bx, t0: s.base[0], t1: s.base[1], label: "기준음" }], $("playStat")); });
+$("pAB").addEventListener("click", async () => {
+  const s = segments(), bx = await baseAudio(); if (!bx) { $("playStat").textContent = "기준음 녹음 파일이 이 기기에 없습니다."; return; }
+  const B = { x: bx, t0: s.base[0], t1: s.base[1], label: "기준음" }, C = { x: cur.x, t0: s.cur[0], t1: s.cur[1], label: "현재 소리" };
+  playSeq([B, C, B, C], $("playStat"));
+});
+$("pStop").addEventListener("click", stopAll);
+
+/* ---------- 입력 ---------- */
+async function loadSound(x, name, meta, src, device) {
+  stopAll();
+  if (device) $("devSel").value = device;
+  cur = { x, name, meta, src, device: $("devSel").value, at: fmtNow() };
+  $("srcName").textContent = name;
+  $("srcMeta").textContent = `${(x.length / Engine.SR).toFixed(1)}초${meta ? " · " + meta : ""}`;
+  drawWave();
+  const base = mById(eqById(curEq).baselineId);
+  analyze();
+  if (base) getAudio(base).then((bx) => { if (bx && cur && cur.x === x) { cur.baseP = Engine.welch(bx, 8192); drawSpec(); } });
+}
+function loadDemo(idx) {
+  const e = eqById(curEq), d = DEMOS[e.type] && DEMOS[e.type][idx];
+  if (!d) return;
+  const rec = { type: TYPES[e.type].synth, fault: d[0], sev: d[1], seed: d[5], device: d[3] || "A" };
+  if (d[4]) rec.noise = d[4];
+  loadSound(Engine.synth(rec), "시연: " + d[2], "예시 소리", { synth: rec }, d[3] || "A");
+}
+$("demoBtn").addEventListener("click", () => loadDemo(Number($("demoSel").value)));
+$("devSel").addEventListener("change", () => { if (cur) { cur.device = $("devSel").value; analyze(); } });
+$("kindSeg").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button"); if (!b) return;
+  kind = b.dataset.v; for (const x of $("kindSeg").children) x.setAttribute("aria-pressed", x === b ? "true" : "false");
+  if (cur) $("rWhen").textContent = `${cur.at} · ${kind} · ${devById(cur.device).name}`;
+});
+async function decodeBlob(blob) {
+  const buf = await blob.arrayBuffer(), AC = window.AudioContext || window.webkitAudioContext, ctx = new AC();
+  try {
+    const ab = await new Promise((ok, no) => { const p = ctx.decodeAudioData(buf, ok, no); if (p && p.then) p.then(ok, no); });
+    const n = Math.min(ab.length, Math.floor(ab.sampleRate * 30)), x = new Float32Array(n);
+    for (let c = 0; c < ab.numberOfChannels; c++) { const d = ab.getChannelData(c); for (let i = 0; i < n; i++) x[i] += d[i] / ab.numberOfChannels; }
+    return Engine.resample(x, ab.sampleRate);
+  } finally { if (ctx.close) ctx.close(); }
+}
+$("file").addEventListener("change", async (ev) => {
+  const f = ev.target.files[0]; if (!f) return;
+  $("fileMsg").hidden = true;
+  try {
+    const x = await decodeBlob(f);
+    if (x.length < Engine.SR) throw new Error("short");
+    await loadSound(x, f.name, "업로드", { upload: true });
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    $("fileMsg").textContent = err && err.message === "short" ? "녹음이 1초보다 짧습니다. 5초 이상 녹음해 주세요." : "이 파일 형식은 읽을 수 없습니다. m4a, mp3, wav로 다시 저장해 주세요.";
+    $("fileMsg").hidden = false;
+  }
+  ev.target.value = "";
+});
+let recording = false;
+$("recBtn").addEventListener("click", async () => {
+  if (recording) return;
+  $("recMsg").hidden = true;
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); }
+  catch { $("recMsg").textContent = "이 화면에서는 마이크를 쓸 수 없습니다. 휴대폰 녹음 앱으로 녹음한 뒤 '파일 선택'으로 올려 주세요."; $("recMsg").hidden = false; return; }
+  recording = true;
+  const rec = new MediaRecorder(stream), chunks = [];
+  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  rec.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop()); recording = false; $("recBtn").textContent = "녹음 시작"; $("recBtn").disabled = false;
+    try { const x = await decodeBlob(new Blob(chunks, { type: rec.mimeType })); await loadSound(x, "현장 녹음 " + fmtNow().slice(11), "마이크", { upload: true }); }
+    catch { $("recMsg").textContent = "녹음을 읽지 못했습니다. 다시 시도하거나 파일로 올려 주세요."; $("recMsg").hidden = false; }
+  };
+  rec.start(); $("recBtn").disabled = true;
+  let left = Number($("recDur").value) || 6; const tick = () => { $("recBtn").textContent = `녹음 중 ${left}초`; if (left-- <= 0) rec.stop(); else setTimeout(tick, 1000); }; tick();
+});
+
+/* ---------- 저장 · 기준 등록 · 기기 보정 ---------- */
+function note(t, ok) { $("actNote").textContent = t; $("actNote").className = "note" + (ok ? " ok-note" : ""); }
+function updateActions() {
+  const e = eqById(curEq), base = mById(e.baselineId);
+  $("saveBtn").disabled = !cur || !cur.cmp; $("saveBtn").textContent = cur && cur.saved ? "저장됨" : "결과 저장";
+  if (cur && cur.saved) $("saveBtn").disabled = true;
+  baseArm = false; $("baseBtn").textContent = base ? "정상음으로 다시 등록" : "정상음으로 등록";
+  $("calBtn").hidden = !(cur && base && cur.device !== base.device && cur.q.ok);
+  note(base ? "" : "이 설비는 정상음이 없습니다. 정상 상태 소리를 녹음해 등록하세요.", false);
+}
+function newId() { return curEq + "-" + Date.now().toString(36); }
+async function storeAudio(id) { if (cur.src && cur.src.synth) return { synth: cur.src.synth }; await putAudio(id, cur.x); return { idb: true }; }
+$("saveBtn").addEventListener("click", async () => {
+  if (!cur || !cur.cmp || cur.saved) return;
+  const id = newId(), seg = cur.cmp.cycle && cur.cmp.cycle.seg;
+  DB.measurements.push({ id, eq: curEq, at: cur.at, kind, device: cur.device, score: cur.cmp.score, grade: cur.grade, quality: cur.q.ok ? "양호" : "재측정 권장",
+    feat: pack(cur.feat, false), src: await storeAudio(id), ranges: cur.cmp.ranges.map((r) => +r.diff.toFixed(1)), cycleSeg: seg ? [seg.from, seg.to] : null });
+  cur.saved = true;
+  const ok = saveDB();
+  note(ok ? `저장했습니다. ${kind === "정비 후" ? "이력 탭에 정비 전후 비교 리포트가 만들어졌습니다." : "이력 탭에서 추이를 볼 수 있습니다."}` : "이 브라우저에서는 저장할 수 없습니다.", ok);
+  updateActions(); $("saveBtn").textContent = "저장됨"; $("saveBtn").disabled = true;
+  renderBrief(); renderHist();
+});
+let baseArm = false;
+$("baseBtn").addEventListener("click", async () => {
+  if (!cur) return;
+  // 측정 품질과 관계없이 등록한다. 품질이 낮으면 확인 단계에서 알려만 준다
+  if (!baseArm) { baseArm = true; $("baseBtn").textContent = "한 번 더 누르면 등록"; note(cur.q.ok ? "이 소리를 앞으로 비교 기준으로 씁니다. 설비가 정상 상태일 때만 등록하세요." : "측정 품질이 낮은 녹음입니다(위 안내 참고). 그래도 등록하려면 한 번 더 누르세요.", false); return; }
+  const id = newId() + "b", e = eqById(curEq);
+  DB.measurements.push({ id, eq: curEq, at: cur.at, kind: "기준음 등록", device: cur.device, score: 100, grade: "normal", quality: "양호", feat: pack(cur.feat, true), src: await storeAudio(id) });
+  e.baselineId = id; saveDB();
+  renderBrief(); analyze(); renderHist(); renderEqList();
+  note("정상음으로 등록했습니다. 다음 녹음부터 이 소리와 비교합니다.", true);
+});
+$("calBtn").addEventListener("click", () => {
+  const e = eqById(curEq), base = mById(e.baselineId), d = devById(cur.device); if (!base || !d) return;
+  const raw = Engine.deviceCurve(cur.feat, base.feat), bc = devById(base.device) && devById(base.device).curve;
+  d.curve = raw.map((v, i) => +(v + (bc ? bc[i] : 0)).toFixed(2));
+  d.note = `${cur.at.slice(0, 10)} ${e.station} ${e.name}로 보정`;
+  saveDB(); fillDevSel(); $("devSel").value = d.id; renderDevs();
+  note(`${d.name}의 마이크 특성 곡선을 저장했습니다. 설비가 정상 상태일 때 녹음한 것이어야 합니다.`, true);
+  analyze();
+});
+
+/* ---------- AI ---------- */
+let sample = null, aiCtl = null;
+function resetAi() {
+  if (aiCtl) aiCtl.abort();
+  if (!sample) return;
+  $("aiBtn").disabled = !(cur && cur.cmp); $("aiBtn").textContent = "변화 설명 작성";
+  $("aiOut").innerHTML = '<p class="note">이 판정에 대해 점수 하락 이유와 점검 권고를 문장으로 받아봅니다.</p>';
+}
+function renderAi(text) {
+  const out = $("aiOut"); out.innerHTML = "";
+  for (const raw of text.split("\n")) {
+    const line = raw.trim().replace(/\*\*/g, ""); if (!line) continue;
+    if (/^#{1,4}\s/.test(line)) out.append(el("h4", null, line.replace(/^#+\s*/, "")));
+    else if (/^[-*•]\s/.test(line)) out.append(el("p", "li", line.replace(/^[-*•]\s*/, "")));
+    else out.append(el("p", null, line));
+  }
+}
+function aiPrompt() {
+  const e = eqById(curEq), c = cur.cmp, base = mById(e.baselineId), m = mgmt(curEq, c.score, cur.grade);
+  const facts = {
+    설비: `${e.name} (${TYPES[e.type].label})`, 위치: `${e.station} ${e.place}`, 점검구분: kind,
+    정상음_유사도: c.score, 기준점수: e.threshold, 판정: GRADE[cur.grade], 관리지표: `${m.v} (${m.lvl[0]})`,
+    이전_점수: histOf(curEq).slice(-5).map((x) => `${x.at.slice(0, 10)} ${x.kind} ${x.score}점`),
+    대역별_변화_dB: Object.fromEntries(c.ranges.map((r) => [`${r.name} ${r.lo}-${r.hi}Hz (${r.hint})`, +r.diff.toFixed(1)])),
+    충격성_첨도: { 기준: base.feat.kurt, 현재: +cur.feat.kurt.toFixed(2), 정상값: 3 },
+    동작주기: c.cycle && !c.cycle.mismatch ? { 주기_초: +c.cycle.period.toFixed(2), 이상구간: c.cycle.seg ? `${Math.round(c.cycle.seg.from * 100)}~${Math.round(c.cycle.seg.to * 100)}%, +${c.cycle.seg.peakDb.toFixed(1)}dB` : "없음" } : "연속 운전 설비 또는 주기 없음",
+    측정품질: cur.q.ok ? "양호" : cur.q.issues.map((i) => i.msg).join(" / "), 기기보정: cur.devNote || "기준음과 같은 기기",
+    규칙기반_설명: explainLines(),
+  };
+  return `당신은 도시철도 기계설비 점검 전문가이자 중대재해 예방 담당자입니다. 스마트폰으로 녹음한 설비 소리를 등록된 정상음과 비교한 결과가 아래에 있습니다. 현장 점검자가 읽을 설명을 한국어로 쓰세요.
+
+비교 결과(JSON):
+${JSON.stringify(facts, null, 1)}
+
+형식:
+## 점수가 달라진 이유
+## 소리 변화 양상
+## 점검 권고
+## 작업 전 안전 유의
+각 제목 아래는 "- "로 시작하는 짧은 문장 2~3개. 수치를 인용하고, 단정하지 말고 "의심", "가능성"으로 쓰세요. 안전 유의는 이 설비 종류에 맞게(LOTO, 끼임, 밀폐공간, 감전 등) 구체적으로. 마지막에 "스마트폰 소리 기반 1차 선별이므로 진동 측정 등으로 확인 필요"를 한 줄. 250단어 이내, 굵게 표시는 쓰지 마세요.`;
+}
+$("aiBtn").addEventListener("click", async () => {
+  if (!sample || !cur || !cur.cmp) return;
+  const ctl = (aiCtl = new AbortController());
+  $("aiBtn").disabled = true; $("aiStop").hidden = false;
+  $("aiOut").innerHTML = '<p class="note">비교 결과를 검토하고 있습니다…</p>';
+  try {
+    const { truncated } = await sample(aiPrompt(), { signal: ctl.signal, onText: ({ text }) => renderAi(text) });
+    if (truncated) $("aiOut").append(el("p", "note", "설명이 길어 중간에 끊겼습니다."));
+  } catch (e) {
+    const code = e && e.code;
+    if (e && e.text) renderAi(e.text); else if (code === "cancelled") $("aiOut").innerHTML = "";
+    const msg = { not_granted: "AI 사용이 허용되지 않았습니다. 위의 규칙 기반 설명을 이용해 주세요.", sampling_disabled: "이 계정에서는 AI 설명을 쓸 수 없습니다.", rate_limited: "요청이 많습니다. 잠시 후 다시 눌러 주세요.", session_expired: "로그인이 만료되었습니다." }[code] || (code === "cancelled" ? "" : "설명 작성이 중단되었습니다. 다시 눌러 주세요.");
+    if (msg) $("aiOut").append(el("p", "msg", msg));
+    if (["not_granted", "sampling_disabled", "not_declared", "capability_disabled"].includes(code)) { sample = null; $("aiBtn").textContent = "AI 사용 불가"; }
+  } finally {
+    $("aiStop").hidden = true;
+    if (sample) { $("aiBtn").disabled = false; $("aiBtn").textContent = "다시 작성"; }
+  }
+});
+$("aiStop").addEventListener("click", () => aiCtl && aiCtl.abort());
+(async () => {
+  try { sample = window.claude && window.claude.use ? await window.claude.use("sample") : null; } catch { sample = null; }
+  if (sample) resetAi();
+  else { $("aiBtn").textContent = "AI 사용 불가"; $("aiOut").innerHTML = '<p class="note">AI 변화 설명은 claude.ai에서 이 페이지를 열었을 때 동작합니다. 위의 규칙 기반 설명은 어디서나 동작합니다.</p>'; }
+})();
+
+/* ---------- 이력 · 리포트 ---------- */
+function renderHist() {
+  drawTrend();
+  const tb = $("histBody"); tb.innerHTML = "";
+  const e = eqById(curEq), rows = DB.measurements.filter((m) => m.eq === curEq).sort((a, b) => b.at.localeCompare(a.at));
+  for (const m of rows) {
+    const tr = el("tr");
+    tr.append(el("td", "mono", m.at), el("td", null, m.kind + (m.id === e.baselineId ? " (현재 기준)" : "")), el("td", null, devById(m.device) ? devById(m.device).name.replace("점검용 ", "").replace("점검자 ", "") : m.device));
+    tr.append(el("td", "num", m.kind === "기준음 등록" ? "-" : String(m.score)));
+    const g = el("td", "g-" + m.grade); if (m.kind !== "기준음 등록") { g.append(el("span", "dot"), GRADE[m.grade]); } tr.append(g);
+    tr.append(el("td", null, m.cycleSeg ? `주기 ${Math.round(m.cycleSeg[0] * 100)}~${Math.round(m.cycleSeg[1] * 100)}%` : m.ranges ? topRange(m.ranges) : ""));
+    const td = el("td"), b = el("button", "ghost", "▶"); b.type = "button"; b.setAttribute("aria-label", m.at + " 녹음 듣기");
+    b.addEventListener("click", async () => { const x = await getAudio(m); if (!x) { $("playStat2").textContent = "이 녹음은 이 기기에 저장돼 있지 않습니다."; return; } playSeq([{ x, t0: 0, t1: Math.min(6, x.length / Engine.SR), label: `${m.at} ${m.kind}` }], $("playStat2")); });
+    td.append(b); tr.append(td); tb.append(tr);
+  }
+  renderPairs();
+}
+function topRange(r) { let i = 0; r.forEach((v, k) => { if (Math.abs(v) > Math.abs(r[i])) i = k; }); return Math.abs(r[i]) >= 1.5 ? `${Engine.RANGES[i].name} ${r[i] > 0 ? "+" : ""}${r[i]} dB` : ""; }
+function pairs() {
+  const h = histOf(curEq), out = [];
+  h.forEach((m, i) => { if (m.kind === "정비 후") { for (let j = i - 1; j >= 0; j--) if (h[j].kind === "정비 전") { out.push([h[j], m]); break; } } });
+  return out;
+}
+function renderPairs() {
+  const ps = pairs(), s = $("pairSel"); s.innerHTML = "";
+  ps.forEach(([a, b], i) => s.add(new Option(`${a.at.slice(0, 10)} → ${b.at.slice(0, 10)}`, i)));
+  s.hidden = !ps.length; if (ps.length) s.value = ps.length - 1;
+  renderReport();
+}
+function renderReport() {
+  const R = $("report"); R.innerHTML = "";
+  const ps = pairs();
+  if (!ps.length) {
+    const others = DB.equipment.filter((e) => e.id !== curEq && DB.measurements.some((m) => m.eq === e.id && m.kind === "정비 후"));
+    R.append(el("p", "note", "이 설비에는 아직 정비 전후 측정이 없습니다. 점검 탭에서 '정비 전'으로 측정 · 저장하고, 정비 직후 '정비 후'로 다시 측정 · 저장하면 자동으로 만들어집니다."));
+    if (others.length) { const b = el("button", "ghost", `${others[0].name} 예시 리포트 보기`); b.type = "button"; b.addEventListener("click", () => selectEq(others[0].id)); R.append(b); }
+    return;
+  }
+  const [a, b] = ps[Number($("pairSel").value) || 0], e = eqById(curEq);
+  const solved = b.grade === "normal" && b.score - a.score >= 10;
+  const ba = el("div", "ba");
+  const box = (m, t) => { const d = el("div", "sbox g-" + m.grade); d.append(el("span", "eyebrow", `${t} · ${m.at}`)); const r = el("div", "row"); const n = el("span", "big", String(m.score)); r.append(n, Object.assign(el("span", "pill g-" + m.grade, GRADE[m.grade]))); d.append(r); return d; };
+  ba.append(box(a, "정비 전"), el("span", "arrow", "→"), box(b, "정비 후"));
+  R.append(el("p", "verdict-line", solved ? `이상음 해소: 유사도 ${a.score}점 → ${b.score}점 (+${b.score - a.score}점)` : b.score > a.score ? `일부 개선: 유사도 ${a.score}점 → ${b.score}점. 추가 확인이 필요합니다.` : `개선 없음: 유사도 ${a.score}점 → ${b.score}점. 원인을 다시 확인하세요.`), ba);
+  const tbl = el("table"); tbl.innerHTML = "<thead><tr><th>소리 영역 (정상음 대비)</th><th style='text-align:right'>정비 전</th><th style='text-align:right'>정비 후</th></tr></thead>";
+  const tb = el("tbody");
+  Engine.RANGES.forEach((r, i) => { const tr = el("tr"); const f = (v) => (v > 0 ? "+" : "") + (v ?? 0).toFixed(1) + " dB"; tr.append(el("td", null, `${r.name} ${r.lo}~${r.hi} Hz`), el("td", "num", f(a.ranges[i])), el("td", "num", f(b.ranges[i]))); tb.append(tr); });
+  { const base = mById(e.baselineId), tr = el("tr"); tr.append(el("td", null, `충격음 정도 · 정상음 ${base ? base.feat.kurt.toFixed(1) : "-"}`), el("td", "num", a.feat.kurt.toFixed(1)), el("td", "num", b.feat.kurt.toFixed(1))); tb.append(tr); }
+  tbl.append(tb); const w = el("div", "tbl-wrap"); w.append(tbl); R.append(w);
+  const sc = el("div", "scope"); sc.innerHTML = '<div class="scope-bar"><strong>소리 분포</strong><span class="legend"><i style="background:var(--scope-text)"></i>정상음</span><span class="legend"><i style="background:var(--danger)"></i>정비 전</span><span class="legend"><i style="background:var(--trace)"></i>정비 후</span></div>';
+  const cv = el("canvas", "c-band"); cv.id = "cvReport"; sc.append(cv);
+  const row = el("div", "row"); const pb = el("button", null, "▶ 정비 전 → 후 들어보기"); pb.type = "button";
+  pb.addEventListener("click", async () => { const xa = await getAudio(a), xb = await getAudio(b); if (!xa || !xb) { $("playStat2").textContent = "녹음 파일이 이 기기에 없습니다."; return; } playSeq([{ x: xa, t0: 1, t1: 3, label: "정비 전" }, { x: xb, t0: 1, t1: 3, label: "정비 후" }], $("playStat2")); });
+  const cp = el("button", "ghost", "리포트 복사"); cp.type = "button";
+  cp.addEventListener("click", async () => {
+    const t = [`[정비 전후 소리 비교 리포트]`, `설비: ${e.name} (${e.id}) / ${e.station} ${e.place}`, `정비 전: ${a.at} 유사도 ${a.score}점 (${GRADE[a.grade]})`, `정비 후: ${b.at} 유사도 ${b.score}점 (${GRADE[b.grade]})`,
+      `결과: ${solved ? "이상음 해소" : b.score > a.score ? "일부 개선" : "개선 없음"}`, ...Engine.RANGES.map((r, i) => `- ${r.name}(${r.lo}~${r.hi} Hz) 기준 대비: ${a.ranges[i]} dB → ${b.ranges[i]} dB`), "※ 스마트폰 소리 기반 비교 결과"].join("\n");
+    try { await navigator.clipboard.writeText(t); cp.textContent = "복사했습니다"; } catch { const ta = $("copyArea"); ta.value = t; ta.select(); try { document.execCommand("copy"); cp.textContent = "복사했습니다"; } catch { cp.textContent = "복사 실패"; } }
+  });
+  row.append(pb, cp); R.append(sc, row);
+  requestAnimationFrame(drawReport);
+}
+function drawReport() {
+  const cv = $("cvReport"); if (!cv || !cv.clientWidth) return;
+  const ps = pairs(); if (!ps.length) return;
+  const [a, b] = ps[Number($("pairSel").value) || 0], base = mById(eqById(curEq).baselineId);
+  const { g, w, h } = prep(cv), F = Engine.BAND_F, padL = 34, padT = 10, padB = 18, W = w - padL - 8, H = h - padT - padB;
+  const fMin = 45, fMax = 10000, X = (f) => padL + (Math.log(f / fMin) / Math.log(fMax / fMin)) * W;
+  logAxis(g, X, padT, H, h, fMin, fMax);
+  const all = [...a.feat.bands, ...b.feat.bands], top = Math.ceil(Math.max(...all) / 10) * 10, bot = top - 50, Y = (v) => padT + (1 - clamp((v - bot) / 50, 0, 1)) * H;
+  g.fillStyle = css("--scope-text"); g.textAlign = "right"; for (let v = bot; v <= top; v += 10) { g.strokeStyle = css("--scope-grid"); g.beginPath(); g.moveTo(padL, Y(v)); g.lineTo(padL + W, Y(v)); g.stroke(); g.fillText(String(v), padL - 4, Y(v) + 3); }
+  const line = (arr, col, wd, dash) => { g.strokeStyle = col; g.lineWidth = wd; g.setLineDash(dash || []); g.beginPath(); arr.forEach((v, i) => (i ? g.lineTo(X(F[i]), Y(v)) : g.moveTo(X(F[i]), Y(v)))); g.stroke(); g.setLineDash([]); g.lineWidth = 1; };
+  if (base) line(base.feat.bands, css("--scope-text"), 1.5, [4, 3]);
+  line(a.feat.bands, css("--danger"), 1.8); line(b.feat.bands, css("--trace"), 2);
+}
+$("pairSel").addEventListener("change", renderReport);
+$("expBtn").addEventListener("click", async () => {
+  const e = eqById(curEq), rows = DB.measurements.filter((m) => m.eq === curEq).sort((a, b) => a.at.localeCompare(b.at));
+  const head = ["설비", "설비번호", "역", "일시", "구분", "측정 기기", "유사도", "판정", "측정 품질", "의심 내용"];
+  const lines = [head.join("\t"), ...rows.map((m) => [e.name, e.id, e.station, m.at, m.kind, devById(m.device) ? devById(m.device).name : m.device,
+    m.kind === "기준음 등록" ? "" : m.score, m.kind === "기준음 등록" ? "정상음 등록" : GRADE[m.grade], m.quality || "",
+    m.cycleSeg ? `반복 동작 ${Math.round(m.cycleSeg[0] * 100)}~${Math.round(m.cycleSeg[1] * 100)}% 시점` : m.ranges ? topRange(m.ranges) : ""].join("\t"))];
+  const t = lines.join("\n");
+  try { await navigator.clipboard.writeText(t); $("expNote").textContent = `${rows.length}건을 복사했습니다. 엑셀이나 한글 표에 붙여 넣으세요.`; }
+  catch { const ta = $("copyArea"); ta.value = t; ta.select(); try { document.execCommand("copy"); $("expNote").textContent = `${rows.length}건을 복사했습니다.`; } catch { $("expNote").textContent = "복사할 수 없습니다."; } }
+});
+
+/* ---------- 설비 · QR ---------- */
+function qrUrl(e) { return (DB.settings.qrBase || DEFAULT_QR).split("#")[0] + "#" + e.id; }
+function makeQR(box, text) {
+  box.innerHTML = "";
+  if (window.QRCode) { try { new QRCode(box, { text, width: 100, height: 100, colorDark: "#0c171e", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.M }); return; } catch {} }
+  box.append(el("span", "small", "QR 라이브러리를 불러오지 못했습니다"));
+}
+let downloads = null;
+(async () => { try { downloads = window.claude && window.claude.use ? await window.claude.use("downloads") : null; } catch { downloads = null; } renderEqList(); })();
+async function saveLabel(e, box) {
+  const src = box.querySelector("canvas") || box.querySelector("img"); if (!src) return;
+  const c = document.createElement("canvas"); c.width = 720; c.height = 300; const g = c.getContext("2d");
+  g.fillStyle = "#ffffff"; g.fillRect(0, 0, 720, 300); g.strokeStyle = "#0b6a86"; g.lineWidth = 6; g.strokeRect(3, 3, 714, 294);
+  g.imageSmoothingEnabled = false; g.drawImage(src, 24, 30, 240, 240);
+  g.fillStyle = "#0c171e"; g.font = "bold 30px 'IBM Plex Sans KR', sans-serif"; g.fillText(e.name, 290, 80);
+  g.font = "22px 'IBM Plex Sans KR', sans-serif"; g.fillText(`${e.station} · ${e.place}`, 290, 120);
+  g.font = "20px 'IBM Plex Mono', monospace"; g.fillText(e.id, 290, 156);
+  g.font = "18px 'IBM Plex Sans KR', sans-serif"; g.fillStyle = "#556773";
+  g.fillText(`측정: ${e.guide.pos}`, 290, 200); g.fillText(`거리 ${e.guide.dist} · ${e.guide.state}`, 290, 230); g.fillText("QR을 찍고 소리를 녹음하세요", 290, 262);
+  const blob = await new Promise((ok) => c.toBlob(ok, "image/png"));
+  try { await downloads.save({ filename: `QR라벨_${e.id}.png`, data: blob }); } catch {}
+}
+function renderEqList() {
+  const L = $("eqList"); L.innerHTML = "";
+  for (const e of DB.equipment) {
+    const card = el("div", "eq"), qb = el("div", "qrbox"); qb.title = "이 설비 점검 화면 열기"; qb.tabIndex = 0;
+    makeQR(qb, qrUrl(e));
+    const open = () => { qrOpened = true; selectEq(e.id, true); showTab("check"); loadDemo(0); };
+    qb.addEventListener("click", open); qb.addEventListener("keydown", (ev) => { if (ev.key === "Enter") open(); });
+    const info = el("div"); info.style.minWidth = "0"; info.style.display = "flex"; info.style.flexDirection = "column"; info.style.gap = "4px";
+    const base = mById(e.baselineId);
+    info.append(el("h3", null, e.name), el("span", "meta", `${e.station} · ${e.place}`), el("span", "meta mono", e.id), el("span", "meta", `${TYPES[e.type].label} · 정상음 ${base ? base.at.slice(0, 10) + " 등록" : "미등록"}`));
+    const full = el("div", "full");
+    const thr = el("div", "thr"); const lab = el("span", null, "기준점수"); const rg = el("input"); rg.type = "range"; rg.min = 50; rg.max = 90; rg.step = 1; rg.value = e.threshold; rg.id = "thr-" + e.id; rg.setAttribute("aria-label", e.name + " 기준점수");
+    const val = el("b", "mono", String(e.threshold));
+    rg.addEventListener("input", () => { val.textContent = rg.value; });
+    rg.addEventListener("change", () => { e.threshold = Number(rg.value); for (const m of DB.measurements.filter((m) => m.eq === e.id && m.kind !== "기준음 등록")) m.grade = gradeOf(m.score, e.threshold); saveDB(); if (curEq === e.id) { renderBrief(); if (cur) analyze(); } renderHist(); });
+    thr.append(lab, rg, val);
+    const btns = el("div", "row"); const ob = el("button", "ghost", "점검하기"); ob.type = "button"; ob.addEventListener("click", open); btns.append(ob);
+    const eb = el("button", "quiet", "정보 수정"); eb.type = "button"; eb.addEventListener("click", () => startEdit(e)); btns.append(eb);
+    const xb = el("button", "quiet", "삭제"); xb.type = "button"; let arm = false;
+    xb.addEventListener("click", () => {
+      if (DB.equipment.length <= 1) return;
+      if (!arm) { arm = true; xb.textContent = "한 번 더 누르면 삭제"; return; }
+      DB.equipment = DB.equipment.filter((x) => x.id !== e.id); DB.measurements = DB.measurements.filter((m) => m.eq !== e.id);
+      saveDB(); if (curEq === e.id) curEq = DB.equipment[0].id; fillEqSelects(); renderEqList(); selectEq(curEq);
+    });
+    btns.append(xb);
+    if (downloads) { const sb = el("button", "quiet", "QR 라벨 저장"); sb.type = "button"; sb.addEventListener("click", () => saveLabel(e, qb)); btns.append(sb); }
+    full.append(thr, el("span", "meta", `측정 표준: ${e.guide.pos} / ${e.guide.dist} / ${e.guide.state}`), btns);
+    card.append(qb, info, full); L.append(card);
+  }
+}
+function renderDevs() {
+  const tb = $("devBody"); tb.innerHTML = "";
+  for (const d of DB.devices) { const tr = el("tr"); tr.append(el("td", null, d.name), el("td", null, d.id === "A" ? "기준 기기" : d.curve ? "보정됨" : "보정 전"), el("td", "muted", d.note || "")); tb.append(tr); }
+}
+for (const [k, t] of Object.entries(TYPES)) $("nType").add(new Option(t.label, k));
+$("nType").value = "elevator";
+let editId = null;
+function startEdit(e) {
+  editId = e.id;
+  $("nType").value = e.type; $("nName").value = e.name; $("nSt").value = e.station; $("nPlace").value = e.place;
+  $("nPos").value = e.guide.pos; $("nDist").value = e.guide.dist; $("nState").value = e.guide.state;
+  $("addEq").textContent = "수정 저장"; $("cancelEdit").hidden = false; $("eqFormTitle").textContent = `설비 정보 수정 · ${e.id}`;
+  $("addNote").textContent = "고친 뒤 '수정 저장'을 누르세요. 설비번호와 QR은 그대로입니다."; $("addNote").className = "note";
+  $("eqFormTitle").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function endEdit() { editId = null; $("addEq").textContent = "설비 추가"; $("cancelEdit").hidden = true; $("eqFormTitle").textContent = "설비 등록"; }
+$("cancelEdit").addEventListener("click", () => { endEdit(); $("addNote").textContent = ""; });
+$("addEq").addEventListener("click", () => {
+  const type = $("nType").value, name = $("nName").value.trim() || TYPES[type].label;
+  const info = { name, type, station: $("nSt").value.trim(), place: $("nPlace").value.trim(), guide: { pos: $("nPos").value.trim(), dist: $("nDist").value.trim(), state: $("nState").value.trim() || "정상 운전 중" } };
+  if (editId) {
+    const id = editId; Object.assign(eqById(id), info); endEdit();
+    saveDB(); fillEqSelects(); renderEqList(); if (curEq === id) { renderBrief(); fillDemo(); }
+    $("addNote").textContent = `${name}(${id}) 정보를 고쳤습니다.`; $("addNote").className = "note ok-note"; return;
+  }
+  const id = `${TYPES[type].prefix}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+  DB.equipment.push({ id, ...info, threshold: 70, baselineId: null });
+  saveDB(); fillEqSelects(); renderEqList();
+  $("addNote").textContent = `${name}(${id})를 추가했습니다. QR이 위 목록에 생겼습니다.`; $("addNote").className = "note ok-note";
+});
+$("addDev").addEventListener("click", () => {
+  const name = $("nDev").value.trim(); if (!name) return;
+  DB.devices.push({ id: "D" + Date.now().toString(36), name, curve: null, note: "아직 보정하지 않음" }); saveDB(); renderDevs(); fillDevSel();
+});
+$("qrBase").value = DB.settings.qrBase;
+$("qrBase").addEventListener("change", () => { DB.settings.qrBase = $("qrBase").value.trim() || DEFAULT_QR; saveDB(); renderEqList(); });
+let resetArm = false;
+$("resetBtn").addEventListener("click", () => {
+  if (!resetArm) { resetArm = true; $("resetBtn").textContent = "한 번 더 누르면 초기화"; $("resetNote").textContent = "직접 추가한 설비와 측정 기록이 지워집니다."; return; }
+  try { localStorage.removeItem(KEY); } catch {}
+  loadDB(); resetArm = false; $("resetBtn").textContent = "시연 데이터로 초기화"; $("resetNote").textContent = "초기화했습니다.";
+  curEq = DB.equipment[0].id; fillEqSelects(); fillDevSel(); renderDevs(); renderEqList(); selectEq(curEq);
+});
+
+/* ---------- 탭 · 설비 선택 ---------- */
+function showTab(t) {
+  for (const b of document.querySelectorAll("nav.tabs button")) b.setAttribute("aria-selected", b.dataset.tab === t ? "true" : "false");
+  for (const p of document.querySelectorAll("[data-panel]")) p.hidden = p.dataset.panel !== t;
+  window.scrollTo({ top: 0 });
+  requestAnimationFrame(redraw);
+}
+document.querySelector("nav.tabs").addEventListener("click", (ev) => { const b = ev.target.closest("button"); if (b) showTab(b.dataset.tab); });
+function selectEq(id, keepQR) {
+  if (!eqById(id)) return;
+  if (!keepQR && id !== curEq) qrOpened = qrOpened && false;
+  curEq = id; $("eqSel").value = id; $("eqSel2").value = id;
+  fillDemo(); renderBrief(); renderHist();
+  cur = null; $("result").hidden = true; $("srcName").textContent = "-"; $("srcMeta").textContent = "녹음하거나 파일을 올리세요";
+  const cv = $("cvWave"); if (cv.clientWidth) prep(cv);
+}
+$("eqSel").addEventListener("change", () => { qrOpened = false; selectEq($("eqSel").value); });
+$("eqSel2").addEventListener("change", () => selectEq($("eqSel2").value));
+function fromHash() {
+  const h = decodeURIComponent((location.hash || "").slice(1));
+  if (h && eqById(h)) { qrOpened = true; selectEq(h, true); showTab("check"); return true; }
+  return false;
+}
+window.addEventListener("hashchange", fromHash);
+
+/* ---------- 시작 ---------- */
+fillEqSelects(); fillDevSel(); renderDevs(); renderEqList();
+if (!fromHash()) selectEq(curEq);
+// 처음 열면 에스컬레이터 디딤판 충격음 시연으로 바로 판정 화면을 보여준다
+if (curEq === "ES-L2-0201") loadDemo(4); else loadDemo(0);
+
+</script>
+
+</body>
+</html>
